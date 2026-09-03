@@ -76,3 +76,10 @@ export const sendAnniversaryWhatsApp = async (phone, name) => {
   const message = `🎉 Happy Anniversary ${name}!\n\nWishing you a healthy, happy, and blessed life together from all of us at H4 Fitness Studio Semmancheri! ❤️🏋️‍♂️`;
   return sendWhatsAppMessage(phone, message);
 };
+
+export const sendExpiryReminderWhatsApp = async (phone, name, endDate, memberId, packageName, balance = 0) => {
+  const balanceText = balance > 0 ? `\nPending Balance: ₹${balance}` : "";
+  const message = `🔔 *Subscription Expiry Reminder*\n\nHi *${name}* (Member ID: *${memberId || "N/A"}*),\n\nYour gym membership (${packageName || "Package"}) at *H4 Fitness Studio Semmancheri* is expiring / has expired on *${endDate}*.${balanceText}\n\nPlease renew your monthly membership to continue your workout regime without interruption. 💪🏋️‍♂️\n\nThank you!\nH4 Fitness Studio Semmancheri`;
+  return sendWhatsAppMessage(phone, message);
+};
+

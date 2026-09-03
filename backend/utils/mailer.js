@@ -85,6 +85,14 @@ const templates = {
     <h2>🎉 Happy Anniversary ${name}!</h2>
     <p>Wishing you a healthy life together ❤️</p>
   `,
+
+  expiryReminder: (name, endDate, packageName, balance) => `
+    <h2>Subscription Expiry Reminder 🔔</h2>
+    <p>Hi ${name},</p>
+    <p>Your gym membership (<b>${packageName || "Package"}</b>) at H4 Fitness Studio Semmancheri is expiring / has expired on <b>${endDate}</b>.</p>
+    ${balance > 0 ? `<p><b>Pending Balance:</b> ₹${balance}</p>` : ""}
+    <p>Please renew your monthly membership to continue your workouts! 💪🏋️‍♂️</p>
+  `,
 };
 
 // ================= EXPORT FUNCTIONS =================
@@ -102,4 +110,8 @@ export const sendBirthdayMail = (email, name) => {
 
 export const sendAnniversaryMail = (email, name) => {
   return sendMail(email, "Happy Anniversary 🎉", templates.anniversary(name));
+};
+
+export const sendExpiryMail = (email, name, endDate, packageName, balance = 0) => {
+  return sendMail(email, "Subscription Expiry Reminder 🔔 - H4 Fitness Studio", templates.expiryReminder(name, endDate, packageName, balance));
 };

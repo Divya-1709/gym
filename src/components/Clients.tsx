@@ -340,6 +340,21 @@ const calculateEndDate = (joiningDate: string, days: number) => {
   return start.toISOString().split("T")[0];
 };
 
+const sendWhatsAppReminder = async (client: GymBill) => {
+  try {
+    const res = await axios.post(`${API_URI}/gymbill/send-expiry-reminder/${client._id}`);
+    if (res.data.whatsappLink) {
+      window.open(res.data.whatsappLink, "_blank");
+    } else {
+      alert("✅ Subscription expiry reminder sent successfully!");
+    }
+  } catch (err) {
+    console.error("❌ Failed to send WhatsApp reminder:", err);
+    alert("Failed to send WhatsApp reminder.");
+  }
+};
+
+
 
 
   return (
@@ -564,11 +579,20 @@ const calculateEndDate = (joiningDate: string, days: number) => {
               </button>
 
               <button
-  onClick={() => generateCurrentPackageBill(client)}
-  className="bg-blue-500 text-white px-4 py-1 rounded-md"
->
-  Download Bill
-</button>
+                onClick={() => generateCurrentPackageBill(client)}
+                className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md"
+              >
+                Download Bill
+              </button>
+
+              <button
+                onClick={() => sendWhatsAppReminder(client)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-md inline-flex items-center gap-1"
+                title="Send WhatsApp Expiry Reminder"
+              >
+                📱 Reminder
+              </button>
+
 
               
 

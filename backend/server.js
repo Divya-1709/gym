@@ -19,6 +19,8 @@ import path from "path";
 import { fileURLToPath } from "url"; // ✅ Needed for __dirname in ESM
 import expenseRoutes from "./routes/expenseRoutes.js";
 import "./cron/sendWishes.js";
+import "./cron/sendExpiryReminders.js";
+
 
 
 const app = express();

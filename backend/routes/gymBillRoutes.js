@@ -8,10 +8,12 @@ import { sendInvoiceMail } from "../utils/mailer.js";
 const router = express.Router();
 import {
   sendNewClientMail,
-  sendRenewalMail
+  sendRenewalMail,
+  sendExpiryMail
 } from "../utils/mailer.js";
-import { sendNewClientWhatsApp } from "../utils/whatsapp.js";
+import { sendNewClientWhatsApp, sendExpiryReminderWhatsApp } from "../utils/whatsapp.js";
 import { runWishesJob } from "../cron/sendWishes.js";
+import { runExpiryRemindersJob } from "../cron/sendExpiryReminders.js";
 // ----------------------
 // 🗂️ Multer Configuration
 // ----------------------
@@ -77,6 +79,65 @@ router.post("/trigger-wishes", async (req, res) => {
     res.status(500).json({ message: "Failed to run wishes job", error: error.message });
   }
 });
+
+// ----------------------------------
+// 🎯 Trigger Expiry Reminders Job
+// ----------------------------------
+router.post("/trigger-expiry-reminders", async (req, res) => {
+  try {
+    const results = await runExpiryRemindersJob();
+    res.json({ message: "Expiry reminders job executed", count: results.length, data: results });
+  } catch (error) {
+    console.error("Error running expiry reminders job:", error);
+    res.status(500).json({ message: "Failed to run expiry reminders job", error: error.message });
+  }
+});
+
+// ----------------------------------
+// 📱 Send Expiry Reminder for Single Client
+// ----------------------------------
+router.post("/send-expiry-reminder/:id", async (req, res) => {
+  try {
+    const bill = await GymBill.findById(req.params.id);
+    if (!bill) return res.status(404).json({ message: "Client bill not found" });
+
+    let waResult = null;
+    let emailSent = false;
+
+    if (bill.contactNumber) {
+      waResult = await sendExpiryReminderWhatsApp(
+        bill.contactNumber,
+        bill.client,
+        bill.endDate,
+        bill.memberId,
+        bill.package,
+        bill.balance || 0
+      );
+    }
+
+    if (bill.email) {
+      await sendExpiryMail(
+        bill.email,
+        bill.client,
+        bill.endDate,
+        bill.package,
+        bill.balance || 0
+      );
+      emailSent = true;
+    }
+
+    res.json({
+      message: "Expiry reminder sent successfully",
+      whatsappApiSent: waResult?.apiSent || false,
+      whatsappLink: waResult?.link || null,
+      emailSent,
+    });
+  } catch (error) {
+    console.error("Error sending expiry reminder:", error);
+    res.status(500).json({ message: "Failed to send expiry reminder", error: error.message });
+  }
+});
+
 
 
 

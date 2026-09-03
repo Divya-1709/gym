@@ -90,6 +90,17 @@ const handleTriggerWishes = async () => {
   }
 };
 
+const handleTriggerExpiryReminders = async () => {
+  try {
+    const res = await axios.post(`${API_URI}/gymbill/trigger-expiry-reminders`);
+    alert(`🔔 Expiry Reminders Job Executed! Sent ${res.data.count || 0} reminder(s).`);
+  } catch (err: any) {
+    console.error("Error triggering expiry reminders:", err);
+    alert("Failed to run expiry reminders job.");
+  }
+};
+
+
 const sendWish = (name: string, phone: string) => {
   const message = `🎉 Happy Birthday ${name}! Stay strong and keep crushing your fitness goals 💪🔥`;
 
@@ -333,12 +344,21 @@ const sendWish = (name: string, phone: string) => {
     <h2 className="text-lg font-semibold text-yellow-700 flex items-center gap-2">
       🎂 Today's Birthdays
     </h2>
-    <button
-      onClick={handleTriggerWishes}
-      className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow transition"
-    >
-      🚀 Run Automated Wishes Now
-    </button>
+    <div className="flex flex-wrap gap-2">
+      <button
+        onClick={handleTriggerWishes}
+        className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow transition"
+      >
+        🚀 Run Birthday Wishes Now
+      </button>
+      <button
+        onClick={handleTriggerExpiryReminders}
+        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow transition flex items-center gap-1"
+      >
+        🔔 Run Subscription Expiry Reminders Now
+      </button>
+    </div>
+
   </div>
 
   {birthdays.length === 0 ? (
