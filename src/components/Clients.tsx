@@ -342,11 +342,18 @@ const calculateEndDate = (joiningDate: string, days: number) => {
 
 const sendWhatsAppReminder = async (client: GymBill) => {
   try {
-    const res = await axios.post(`${API_URI}/gymbill/send-expiry-reminder/${client._id}`);
-    if (res.data.whatsappLink) {
-      window.open(res.data.whatsappLink, "_blank");
-    } else {
-      alert("✅ Subscription expiry reminder sent successfully!");
+    // Build the WhatsApp link immediately (avoids popup blocker on async window.open)
+    const phone = client.contactNumber?.replace(/\D/g, "");
+    const formattedPhone = phone?.length === 10 ? `91${phone}` : phone;
+    const message = `🔔 *Subscription Expiry Reminder*\n\nHi *${client.client}* (Member ID: *${client.memberId || "N/A"}*),\n\nYour gym membership (${client.package || "Package"}) at *H4 Fitness Studio Semmancheri* is expiring / has expired on *${client.endDate}*.\n\nPlease renew your membership to continue your fitness journey without interruption. 💪🏋️‍♂️\n\nThank you!\nH4 Fitness Studio Semmancheri`;
+    const waLink = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+
+    // Open WhatsApp link immediately (not blocked by browser)
+    window.open(waLink, "_blank");
+
+    // Also call backend to log / send via API if configured
+    if (client._id) {
+      await axios.post(`${API_URI}/gymbill/send-expiry-reminder/${client._id}`).catch(() => {});
     }
   } catch (err) {
     console.error("❌ Failed to send WhatsApp reminder:", err);
