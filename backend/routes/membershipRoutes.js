@@ -1,49 +1,52 @@
 import express from "express";
-import Membership from "../models/Membership.js";
+import prisma from "../utils/db.js";
 
 const router = express.Router();
 
 // Create single membership
 router.post("/", async (req, res) => {
   try {
-    const membership = new Membership(req.body);
-    await membership.save();
+    const { durationMonths, price, ...rest } = req.body;
+    const membership = await prisma.membership.create({
+      data: {
+        ...rest,
+        durationMonths: parseInt(durationMonths || 1),
+        price: parseFloat(price || 0),
+      },
+    });
     res.status(201).json(membership);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-// Bulk create memberships (pass memberships: [ .. ] + clientId)
+// Bulk create memberships
 router.post("/bulk", async (req, res) => {
   try {
-    const { clientId, memberships } = req.body;
-    if (!clientId || !Array.isArray(memberships)) {
-      return res.status(400).json({ message: "clientId and memberships[] required" });
+    const { memberships } = req.body;
+    if (!Array.isArray(memberships)) {
+      return res.status(400).json({ message: "memberships[] required" });
     }
-    const docs = memberships.map(m => ({ ...m, clientId }));
-    const created = await Membership.insertMany(docs);
-    res.status(201).json(created);
+    const docs = memberships.map((m) => ({
+      ...m,
+      durationMonths: parseInt(m.durationMonths || 1),
+      price: parseFloat(m.price || 0),
+    }));
+
+    await prisma.membership.createMany({ data: docs });
+    const allCreated = await prisma.membership.findMany({ orderBy: { createdAt: "desc" } });
+    res.status(201).json(allCreated);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-// Get all memberships (optionally filter by clientId)
+// Get all memberships
 router.get("/", async (req, res) => {
   try {
-    const filter = {};
-    if (req.query.clientId) filter.clientId = req.query.clientId;
-    const memberships = await Membership.find(filter).populate("clientId", "name contactNumber").sort({ createdAt: -1 });
-    res.json(memberships);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-router.get("/client/:clientId", async (req, res) => {
-  try {
-    const memberships = await Membership.find({ clientId: req.params.clientId });
+    const memberships = await prisma.membership.findMany({
+      orderBy: { createdAt: "desc" },
+    });
     res.json(memberships);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -53,11 +56,25 @@ router.get("/client/:clientId", async (req, res) => {
 // Update membership details
 router.put("/:id", async (req, res) => {
   try {
-    const updated = await Membership.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updated = await prisma.membership.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
     res.json(updated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
+// Delete membership
+router.delete("/:id", async (req, res) => {
+  try {
+    await prisma.membership.delete({ where: { id: req.params.id } });
+    res.json({ message: "Membership deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export default router;
+

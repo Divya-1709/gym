@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config();
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
 import authRoutes from "./routes/authRoutes.js";
 import inquiryRoutes from "./routes/inquiryRoutes.js";
@@ -69,11 +71,12 @@ app.get("/", (req, res) => {
     uptime: process.uptime()
   });
 });
+import prisma from "./utils/db.js";
+
 // Database connection
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Connection Failed:", err));
+prisma.$connect()
+  .then(() => console.log("✅ PostgreSQL Connected via Prisma"))
+  .catch((err) => console.error("❌ PostgreSQL Connection Failed:", err.message));
 
 // Start server
 const PORT = process.env.PORT || 7699;

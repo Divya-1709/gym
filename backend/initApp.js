@@ -1,14 +1,13 @@
-import mongoose from "mongoose";
+import dotenv from "dotenv";
+dotenv.config();
 import bcrypt from "bcryptjs";
-import User from "../backend/models/User.js";
+import prisma from "./utils/db.js";
 
 /* ======================
-   CONFIG (EDIT HERE)
+   CONFIG
 ====================== */
 
 const APP_CONFIG = {
-  MONGO_URI: "mongodb+srv://admin:admin123@cluster0.ydlx3b0.mongodb.net/?appName=Cluster0",
-
   ADMIN: {
     username: "admin",
     password: "one2life3421",
@@ -22,12 +21,12 @@ const APP_CONFIG = {
 const run = async () => {
   try {
     // 🔗 Connect DB
-    await mongoose.connect(APP_CONFIG.MONGO_URI);
-    console.log("✅ MongoDB Connected");
+    await prisma.$connect();
+    console.log("✅ PostgreSQL Connected via Prisma");
 
     // 👤 Create admin if not exists
-    const adminExists = await User.findOne({
-      username: APP_CONFIG.ADMIN.username,
+    const adminExists = await prisma.user.findUnique({
+      where: { username: APP_CONFIG.ADMIN.username },
     });
 
     if (!adminExists) {
@@ -36,18 +35,20 @@ const run = async () => {
         10
       );
 
-      await User.create({
-        username: APP_CONFIG.ADMIN.username,
-        password: hashedPassword,
+      await prisma.user.create({
+        data: {
+          username: APP_CONFIG.ADMIN.username,
+          password: hashedPassword,
+        },
       });
 
       console.log("✅ Admin user created");
     } else {
-      console.log("ℹ️ Admin already exists");
+      console.log("ℹ️ Admin user already exists");
     }
 
-    // ✅ Close DB & exit
-    await mongoose.disconnect();
+    // ✅ Disconnect & exit
+    await prisma.$disconnect();
     console.log("🚪 DB connection closed");
     process.exit(0);
   } catch (error) {
@@ -58,3 +59,4 @@ const run = async () => {
 
 // ▶️ RUN DIRECTLY
 run();
+

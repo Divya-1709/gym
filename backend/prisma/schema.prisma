@@ -1,0 +1,211 @@
+// Prisma Schema for Gym Management System with PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Counter {
+  id   String @id @default(uuid())
+  name String @unique
+  seq  Int    @default(0)
+}
+
+model Trainer {
+  id             String             @id @default(uuid())
+  name           String
+  specialization String?
+  contactNumber  String?
+  email          String?
+  experience     String?
+  isActive       Boolean            @default(true)
+  clients        Client[]
+  inquiries      Inquiry[]
+  groupClasses   GroupClass[]
+  pts            PersonalTraining[]
+  subscriptions  Subscription[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model Client {
+  id               String             @id @default(uuid())
+  clientId         String             @unique // H4001 format
+  name             String
+  gender           String
+  dateOfBirth      String?
+  contactNumber    String
+  email            String
+  alternateContact String?
+  address          String?
+  emergencyContact String?
+  profession       String?
+  taxId            String?
+  workout          String?
+  trainerId        String?
+  trainer          Trainer?           @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  isActive         Boolean            @default(true)
+  subscriptions    Subscription[]
+  pts              PersonalTraining[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+model Inquiry {
+  id                String     @id @default(uuid())
+  inquiryId         String?    @unique
+  name              String
+  phone             String
+  email             String?
+  source            String?
+  assignedTrainerId String?
+  assignedTrainer   Trainer?   @relation(fields: [assignedTrainerId], references: [id], onDelete: SetNull)
+  status            String     @default("Pending")
+  notes             String?
+  followups         Followup[]
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+}
+
+model Followup {
+  id        String   @id @default(uuid())
+  inquiryId String
+  inquiry   Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  date      DateTime
+  notes     String?
+  status    String   @default("Pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Membership {
+  id             String   @id @default(uuid())
+  type           String
+  durationMonths Int
+  price          Float
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model GroupClass {
+  id           String   @id @default(uuid())
+  title        String
+  instructorId String?
+  instructor   Trainer? @relation(fields: [instructorId], references: [id], onDelete: SetNull)
+  schedule     String?
+  capacity     Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PersonalTraining {
+  id        String   @id @default(uuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId String?
+  trainer   Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  sessions  Int
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id                    String   @id @default(uuid())
+  subscriptionId        String   @unique
+  clientId              String
+  client                Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId             String?
+  trainer               Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  trainerName           String?
+  trainerSpecialization String?
+  trainerContact        String?
+  trainerEmail          String?
+  packageType           String
+  packageName           String
+  startDate             DateTime
+  endDate               DateTime
+  price                 Float
+  amountPaid            Float    @default(0)
+  paymentMode           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model GymBill {
+  id                  String   @id @default(uuid())
+  invoiceId           String?
+  invoiceDate         String?
+  memberId            String?  @unique
+  client              String?
+  contactNumber       String?
+  alternateContact    String?
+  email               String?
+  clientSource        String?
+  gender              String?
+  dateOfBirth         String?
+  anniversary         String?
+  profession          String?
+  taxId               String?
+  workoutHours        String?
+  areaAddress         String?
+  remarks             String?
+  package             String?
+  days                String?
+  joiningDate         String?
+  endDate             String?
+  sessions            Int?
+  price               Float?
+  discount            String?
+  discountAmount      Float?   @default(0)
+  admissionCharges    Float?
+  tax                 Float?
+  amountPayable       Float?
+  amountPaid          Float?
+  balance             Float?
+  amount              Float?
+  initialPaymentMode  String?
+  followupDate        String?
+  status              String   @default("Active")
+  paymentMethodDetail String?
+  appointTrainer      String?
+  clientRep           String?
+  paymentHistory      Json?
+  renewalHistory      Json?
+  balanceHistory      Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Package {
+  id           String   @id @default(uuid())
+  name         String
+  type         String
+  price        Float
+  durationDays Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  category    String
+  amount      Float
+  date        DateTime @default(now())
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

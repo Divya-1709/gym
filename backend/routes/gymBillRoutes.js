@@ -1,11 +1,6 @@
 import express from "express";
 import multer from "multer";
-import fs from "fs";
-import GymBill from "../models/GymBill.js";
-import Followup from "../models/Followup.js";
-import { generateInvoicePDF } from "../utils/generateInvoice.js";
-import { sendInvoiceMail } from "../utils/mailer.js";
-const router = express.Router();
+import prisma from "../utils/db.js";
 import {
   sendNewClientMail,
   sendRenewalMail,
@@ -14,58 +9,34 @@ import {
 import { sendNewClientWhatsApp, sendExpiryReminderWhatsApp } from "../utils/whatsapp.js";
 import { runWishesJob } from "../cron/sendWishes.js";
 import { runExpiryRemindersJob } from "../cron/sendExpiryReminders.js";
-// ----------------------
-// 🗂️ Multer Configuration
-// ----------------------
+
+const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
-// ----------------------
-// 🖼️ Serve Image by ID
-// ----------------------
-router.get("/image/:id", async (req, res) => {
-  try {
-    const bill = await GymBill.findById(req.params.id);
+const ALLOWED_BILL_FIELDS = [
+  "invoiceId", "invoiceDate", "memberId", "client", "contactNumber", "alternateContact",
+  "email", "clientSource", "gender", "dateOfBirth", "anniversary", "profession",
+  "taxId", "workoutHours", "areaAddress", "remarks", "package", "days", "joiningDate",
+  "endDate", "sessions", "price", "discount", "discountAmount", "admissionCharges",
+  "tax", "amountPayable", "amountPaid", "balance", "amount", "initialPaymentMode",
+  "followupDate", "status", "paymentMethodDetail", "appointTrainer", "clientRep"
+];
 
-    if (!bill || !bill.profilePicture?.data) {
-      return res.status(404).json({ message: "Image not found" });
+function sanitizeBillInput(body) {
+  const sanitized = {};
+  for (const field of ALLOWED_BILL_FIELDS) {
+    if (body[field] !== undefined && body[field] !== null) {
+      if (["sessions"].includes(field)) {
+        sanitized[field] = Number(body[field]) || 0;
+      } else if (["price", "discountAmount", "admissionCharges", "tax", "amountPayable", "amountPaid", "balance", "amount"].includes(field)) {
+        sanitized[field] = Number(body[field]) || 0;
+      } else {
+        sanitized[field] = String(body[field]);
+      }
     }
-
-    const imgBuffer = Buffer.from(bill.profilePicture.data);
-    res.writeHead(200, {
-      "Content-Type": bill.profilePicture.contentType,
-      "Content-Length": imgBuffer.length,
-      "Cache-Control": "public, max-age=31536000",
-    });
-    res.end(imgBuffer);
-  } catch (error) {
-    console.error("❌ Image fetch error:", error);
-    res.status(500).json({ message: "Error fetching image", error: error.message });
   }
-});
-
-router.get("/invoice/pdf/:id", async (req, res) => {
-  try {
-    const bill = await GymBill.findById(req.params.id);
-    if (!bill) return res.status(404).json({ message: "Bill not found" });
-
-    const profilePic = bill.profilePicture?.data
-      ? Buffer.from(bill.profilePicture.data)
-      : null;
-
-    const pdfBuffer = await generateInvoicePDF(bill, profilePic);
-
-    res.set({
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename=invoice_${bill.memberId}.pdf`,
-      "Content-Length": pdfBuffer.length,
-    });
-
-    res.send(pdfBuffer);
-  } catch (error) {
-    console.error("PDF error:", error);
-    res.status(500).json({ message: "PDF generation failed", error: error.message });
-  }
-});
+  return sanitized;
+}
 
 // ----------------------
 // 🎯 Manual Trigger Wishes
@@ -98,7 +69,7 @@ router.post("/trigger-expiry-reminders", async (req, res) => {
 // ----------------------------------
 router.post("/send-expiry-reminder/:id", async (req, res) => {
   try {
-    const bill = await GymBill.findById(req.params.id);
+    const bill = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
     if (!bill) return res.status(404).json({ message: "Client bill not found" });
 
     let waResult = null;
@@ -138,9 +109,6 @@ router.post("/send-expiry-reminder/:id", async (req, res) => {
   }
 });
 
-
-
-
 // ---------------------
 // 🧾 Create New Gym Bill
 // ---------------------
@@ -149,116 +117,57 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
     if (!req.body || Object.keys(req.body).length === 0)
       return res.status(400).json({ message: "No data provided" });
 
-// 🔢 Auto-generate memberId (plain numbers only)
-    // Using collation with numericOrdering: true ensures that "100" is sorted after "99"
-    const numericMembers = await GymBill.find({
-      memberId: { $regex: /^\d+$/ }
-    })
-    .collation({ locale: "en", numericOrdering: true })
-    .sort({ memberId: -1 })
-    .limit(1);
-    
-    let memberId = "68";
-    if (numericMembers.length > 0 && numericMembers[0].memberId) {
-      const nextNum = parseInt(numericMembers[0].memberId) + 1;
-      memberId = String(nextNum < 68 ? 68 : nextNum);
-    }
-    // Ensure valid status
+    const counter = await prisma.counter.upsert({
+      where: { name: "memberId" },
+      update: { seq: { increment: 1 } },
+      create: { name: "memberId", seq: 68 },
+    });
+    const memberId = String(counter.seq);
+
     let status = req.body.status?.trim();
     if (!status || !["Active", "Inactive"].includes(status)) {
       status = "Active";
     }
 
-    // -------------------------------
-    // 📌 Calculate first bill values
-    // -------------------------------
     const priceNum = Number(req.body.price) || 0;
-
-    // ⭐ Read admissionCharges (frontend)
     const admissionCharges = Number(req.body.admissionCharges) || 0;
-
     const discountAmt = Number(req.body.discountAmount) || 0;
     const paidAmt = Number(req.body.amountPaid) || 0;
-
-    // ⭐ Correct Balance Formula
     const firstBalance = priceNum + admissionCharges - discountAmt - paidAmt;
 
-    // First renewal entry
-    const firstRenewalEntry = {
-      joiningDate: req.body.joiningDate,
-      endDate: req.body.endDate,
-      package: req.body.package,
-      price: priceNum,
-      admissionCharges: admissionCharges,
-      discountAmount: discountAmt,
-      amountPaid: paidAmt,
-      balance: firstBalance,
-      remarks: req.body.remarks,
-      trainer: req.body.trainer,
-    };
+    const sanitizedData = sanitizeBillInput(req.body);
 
-    // Handle Profile Picture
-    let profilePicture = undefined;
-    if (req.file) {
-      const imageData = fs.readFileSync(req.file.path);
-      profilePicture = {
-        data: imageData,
-        contentType: req.file.mimetype,
-      };
-      fs.unlinkSync(req.file.path);
-    }
+    const initialHistory = paidAmt > 0
+      ? [{ amount: paidAmt, mode: req.body.initialPaymentMode || "Cash", note: "Initial Payment", date: new Date() }]
+      : [];
 
-// Create new bill
-    const { memberId: _, ...rest } = req.body;
-
-    const newBill = new GymBill({
-      ...rest,
-      memberId, // Auto-generated ID takes precedence
-      status,
-      profilePicture,
-      admissionCharges: admissionCharges,
-      initialPaymentMode: req.body.initialPaymentMode,
-      balance: firstBalance,
-      discountAmount: discountAmt,
-      price: priceNum,
-      sessions: Number(req.body.sessions) || 0,
-      tax: Number(req.body.tax) || 0,
-      amountPayable: Number(req.body.amountPayable) || 0,
-      amountPaid: paidAmt,
-      amount: Number(req.body.amount) || 0,
+    const newBill = await prisma.gymBill.create({
+      data: {
+        ...sanitizedData,
+        memberId,
+        status,
+        admissionCharges,
+        balance: firstBalance,
+        discountAmount: discountAmt,
+        price: priceNum,
+        sessions: Number(req.body.sessions) || 0,
+        tax: Number(req.body.tax) || 0,
+        amountPayable: Number(req.body.amountPayable) || 0,
+        amountPaid: paidAmt,
+        amount: Number(req.body.amount) || 0,
+        paymentHistory: initialHistory,
+        renewalHistory: [],
+      },
     });
 
-    await newBill.save();
-
-    const profilePic = newBill.profilePicture?.data
-  ? Buffer.from(newBill.profilePicture.data)
-  : null;
-
-if (newBill.email) {
-  await sendInvoiceMail(
-    newBill.email,
-    newBill.client,
-    newBill,
-    profilePic
-  );
-}
-
     if (newBill.email) {
-  await sendNewClientMail(
-    newBill.email,
-    newBill.client,
-    newBill.memberId
-  );
-}
+      await sendNewClientMail(newBill.email, newBill.client, newBill.memberId);
+    }
 
-let waResult = null;
-if (newBill.contactNumber) {
-  waResult = await sendNewClientWhatsApp(
-    newBill.contactNumber,
-    newBill.client,
-    newBill.memberId
-  );
-}
+    let waResult = null;
+    if (newBill.contactNumber) {
+      waResult = await sendNewClientWhatsApp(newBill.contactNumber, newBill.client, newBill.memberId);
+    }
 
     res.status(201).json({
       message: "✅ Gym Bill Created Successfully",
@@ -272,7 +181,6 @@ if (newBill.contactNumber) {
     res.status(500).json({ message: "Error creating gym bill", error: error.message });
   }
 });
-
 
 // ------------------
 // 🔁 Renew Membership
@@ -289,10 +197,9 @@ router.put("/renew/:id", async (req, res) => {
       amountPaid,
       remarks,
       trainer,
-      paymentMethod,
     } = req.body;
 
-    const client = await GymBill.findById(req.params.id);
+    const client = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
     if (!client) return res.status(404).json({ message: "Client not found" });
 
     const previousCycle = {
@@ -306,20 +213,23 @@ router.put("/renew/:id", async (req, res) => {
       balance: client.balance,
       remarks: client.remarks,
       trainer: client.appointTrainer,
-      modeOfPayment: client.modeOfPayment || client.initialPaymentMode,
+      modeOfPayment: client.initialPaymentMode,
+      date: new Date(),
     };
 
     const priceNum = Number(price) || 0;
     const adm = Number(admissionCharges) || 0;
     const disc = Number(discountAmount) || 0;
     const paid = Number(amountPaid) || 0;
-
     const newBalance = priceNum + adm - disc - paid;
 
-    const updated = await GymBill.findByIdAndUpdate(
-      req.params.id,
-      {
-        $push: { renewalHistory: previousCycle },
+    const currentHistory = Array.isArray(client.renewalHistory) ? client.renewalHistory : [];
+    const updatedRenewalHistory = [...currentHistory, previousCycle];
+
+    const updated = await prisma.gymBill.update({
+      where: { id: req.params.id },
+      data: {
+        renewalHistory: updatedRenewalHistory,
         joiningDate,
         endDate,
         package: pkg,
@@ -330,64 +240,21 @@ router.put("/renew/:id", async (req, res) => {
         balance: newBalance,
         remarks,
         appointTrainer: trainer,
-        modeOfPayment: paymentMethod,
         status: "Active",
       },
-      { new: true }
-    );
+    });
 
-    // ✅ MOVE EMAIL HERE
     if (updated.email) {
-      await sendRenewalMail(
-        updated.email,
-        updated.client,
-        updated.endDate
-      );
+      await sendRenewalMail(updated.email, updated.client, updated.endDate);
     }
 
     res.status(200).json({
       message: "Renewal updated successfully",
       data: updated,
     });
-
   } catch (err) {
     console.error("Renewal error:", err);
     res.status(500).json({ error: err.message });
-  }
-});
-
-
-
-
-// ------------------
-// ✏️ Edit Renewal Entry
-// ------------------
-router.put("/renew/edit/:clientId/:renewId", async (req, res) => {
-  try {
-    const { clientId, renewId } = req.params;
-
-    const cleanFields = { ...req.body };
-    if (cleanFields.price !== undefined) cleanFields.price = Number(cleanFields.price) || 0;
-    if (cleanFields.admissionCharges !== undefined) cleanFields.admissionCharges = Number(cleanFields.admissionCharges) || 0;
-    if (cleanFields.discountAmount !== undefined) cleanFields.discountAmount = Number(cleanFields.discountAmount) || 0;
-    if (cleanFields.amountPaid !== undefined) cleanFields.amountPaid = Number(cleanFields.amountPaid) || 0;
-    if (cleanFields.balance !== undefined) cleanFields.balance = Number(cleanFields.balance) || 0;
-
-    const updated = await GymBill.updateOne(
-      { _id: clientId, "renewalHistory._id": renewId },
-      {
-        $set: {
-          "renewalHistory.$": {
-            ...cleanFields,
-            _id: renewId,
-          },
-        },
-      }
-    );
-
-    res.json({ message: "Renewal entry updated", data: updated });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
@@ -396,37 +263,16 @@ router.put("/renew/edit/:clientId/:renewId", async (req, res) => {
 // -----------------
 router.put("/:id", upload.single("profilePicture"), async (req, res) => {
   try {
-    let updatedData = { ...req.body };
+    const sanitizedData = sanitizeBillInput(req.body);
 
-    if (req.file) {
-      const imageData = fs.readFileSync(req.file.path);
-      updatedData.profilePicture = {
-        data: imageData,
-        contentType: req.file.mimetype,
-      };
-      fs.unlinkSync(req.file.path);
+    if (sanitizedData.status && !["Active", "Inactive"].includes(sanitizedData.status)) {
+      sanitizedData.status = "Active";
     }
 
-    if (!updatedData.status || !["Active", "Inactive"].includes(updatedData.status)) {
-      updatedData.status = "Active";
-    }
-
-    if (updatedData.sessions !== undefined) updatedData.sessions = Number(updatedData.sessions) || 0;
-    if (updatedData.price !== undefined) updatedData.price = Number(updatedData.price) || 0;
-    if (updatedData.discountAmount !== undefined) updatedData.discountAmount = Number(updatedData.discountAmount) || 0;
-    if (updatedData.admissionCharges !== undefined) updatedData.admissionCharges = Number(updatedData.admissionCharges) || 0;
-    if (updatedData.tax !== undefined) updatedData.tax = Number(updatedData.tax) || 0;
-    if (updatedData.amountPayable !== undefined) updatedData.amountPayable = Number(updatedData.amountPayable) || 0;
-    if (updatedData.amountPaid !== undefined) updatedData.amountPaid = Number(updatedData.amountPaid) || 0;
-    if (updatedData.balance !== undefined) updatedData.balance = Number(updatedData.balance) || 0;
-    if (updatedData.amount !== undefined) updatedData.amount = Number(updatedData.amount) || 0;
-
-    const updated = await GymBill.findByIdAndUpdate(
-  req.params.id,
-  { $set: updatedData },
-  { new: true, runValidators: true }
-);
-
+    const updated = await prisma.gymBill.update({
+      where: { id: req.params.id },
+      data: sanitizedData,
+    });
 
     res.json(updated);
   } catch (err) {
@@ -440,7 +286,7 @@ router.put("/:id", upload.single("profilePicture"), async (req, res) => {
 // -------------------
 router.delete("/:id", async (req, res) => {
   try {
-    await GymBill.findByIdAndDelete(req.params.id);
+    await prisma.gymBill.delete({ where: { id: req.params.id } });
     res.json({ message: "Client deleted successfully" });
   } catch (err) {
     console.error("❌ Delete error:", err);
@@ -448,119 +294,103 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// 🗑 Delete Renewal Entry
-router.delete("/renew/delete/:clientId/:renewId", async (req, res) => {
-  try {
-    const { clientId, renewId } = req.params;
-
-    const updated = await GymBill.findByIdAndUpdate(
-      clientId,
-      { $pull: { renewalHistory: { _id: renewId } } },
-      { new: true }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
-    res.json({ message: "Renewal entry deleted", data: updated });
-  } catch (err) {
-    console.error("Error deleting renewal:", err);
-    res.status(500).json({ message: "Deletion failed", error: err.message });
-  }
-});
-
 // ---------------------------
-// 💰 Update Payment + Followup
-// ---------------------------
-// ---------------------------
-// 💰 Update Payment + Save History ALWAYS
+// 💰 Update Payment
 // ---------------------------
 router.put("/payment/:id", async (req, res) => {
   try {
-    const { amountPaid, balance, mode, note, followUpDate } = req.body;
+    const { amountPaid, balance, mode, note } = req.body;
 
-    // 1️⃣ Get old bill
-    const oldBill = await GymBill.findById(req.params.id);
+    const oldBill = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
     if (!oldBill) return res.status(404).json({ message: "Client not found" });
 
-    // 2️⃣ Calculate HOW MUCH was paid now
     const previousPaid = oldBill.amountPaid || 0;
     const newPaidTotal = Number(amountPaid) || 0;
-    const paidNow = newPaidTotal - previousPaid;   // ⭐ ACTUAL PAYMENT
+    const paidNow = newPaidTotal - previousPaid;
 
-    // 3️⃣ Save payment entry
     const paymentEntry = {
-      amount: paidNow,       // ⭐ STORE ONLY CURRENT PAYMENT
+      amount: paidNow,
       mode,
       note: note || "",
       date: new Date(),
     };
 
-    // 4️⃣ Update bill
-    const updatedBill = await GymBill.findByIdAndUpdate(
-      req.params.id,
-      {
+    const currentHistory = Array.isArray(oldBill.paymentHistory) ? oldBill.paymentHistory : [];
+    const updatedHistory = [...currentHistory, paymentEntry];
+
+    const updatedBill = await prisma.gymBill.update({
+      where: { id: req.params.id },
+      data: {
         amountPaid: newPaidTotal,
         balance: Number(balance) || 0,
-        $push: { paymentHistory: paymentEntry },
+        paymentHistory: updatedHistory,
       },
-      { new: true }
-    );
-
-    // 5️⃣ Optional followup
-    if (followUpDate) {
-      await Followup.create({
-        client: req.params.id,
-        followupType: "Payment",
-        scheduleDate: followUpDate,
-        response: note || "Payment Follow-up",
-        status: "Pending",
-      });
-    }
+    });
 
     return res.status(200).json({
       message: "Payment updated & history saved",
       data: updatedBill,
     });
-
   } catch (error) {
     console.error("❌ Payment update error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-
-
+// ---------------------
+// 📥 Get All Gym Bills
+// ---------------------
 router.get("/", async (req, res) => {
   try {
-    let bills = await GymBill.find().sort({ _id: -1 });
+    let bills = await prisma.gymBill.findMany({
+      orderBy: { createdAt: "desc" },
+    });
 
     bills = bills.map((bill) => {
-      const renewalTotal = (bill.renewalHistory || []).reduce(
+      const renewalHistory = Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [];
+      const paymentHistory = Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [];
+
+      const renewalTotal = renewalHistory.reduce(
         (sum, r) => sum + (r.amountPaid || 0),
         0
       );
 
-      const totalPaidIncludingRenewals =
-        (bill.amountPaid || 0) + renewalTotal;
+      const totalPaidIncludingRenewals = (bill.amountPaid || 0) + renewalTotal;
 
-      // ⭐ FIX — include EVERYTHING in bill._doc INCLUDING paymentHistory
       return {
-        ...bill._doc,
-        paymentHistory: bill.paymentHistory,   // ⭐ add this
-        renewalHistory: bill.renewalHistory,   // safe
+        ...bill,
+        _id: bill.id, // Frontend backward compatibility
+        paymentHistory,
+        renewalHistory,
         totalPaidIncludingRenewals,
       };
     });
 
     res.status(200).json(bills);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error fetching bills", error: error.message });
+    res.status(500).json({ message: "Error fetching bills", error: error.message });
   }
 });
 
+// ---------------------
+// 📥 Get Single Gym Bill
+// ---------------------
+router.get("/:id", async (req, res) => {
+  try {
+    const bill = await prisma.gymBill.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
+
+    res.json({
+      ...bill,
+      _id: bill.id,
+      paymentHistory: Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [],
+      renewalHistory: Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [],
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching bill", error: error.message });
+  }
+});
 
 export default router;

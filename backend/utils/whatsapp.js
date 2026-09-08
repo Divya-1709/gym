@@ -83,3 +83,44 @@ export const sendExpiryReminderWhatsApp = async (phone, name, endDate, memberId,
   return sendWhatsAppMessage(phone, message);
 };
 
+/**
+ * Renewal reminder — sent 2 days before OR on expiry day
+ * @param {string} phone
+ * @param {string} name
+ * @param {string} endDate  — "YYYY-MM-DD"
+ * @param {string} memberId
+ * @param {string} packageName
+ * @param {number} balance
+ * @param {number} daysRemaining — 0 = expires today, 2 = expires in 2 days
+ */
+export const sendRenewalReminderWhatsApp = async (
+  phone,
+  name,
+  endDate,
+  memberId,
+  packageName,
+  balance = 0,
+  daysRemaining = 2
+) => {
+  const isToday = daysRemaining === 0;
+  const urgencyLine = isToday
+    ? `⚠️ Your membership *expires TODAY* (${endDate}).`
+    : `⏳ Your membership expires in *2 days* on *${endDate}*.`;
+
+  const balanceText = balance > 0 ? `\n💰 Pending Balance: ₹${balance}` : "";
+
+  const message =
+    `🏋️ *H4 Fitness Studio Semmancheri*\n` +
+    `🔔 *Renewal Reminder*\n\n` +
+    `Hi *${name}* (Member ID: *${memberId || "N/A"}*),\n\n` +
+    `${urgencyLine}\n` +
+    `📦 Package: *${packageName || "Monthly Membership"}*` +
+    `${balanceText}\n\n` +
+    `Renew now to keep your fitness journey going without any break! 💪\n\n` +
+    `📞 Contact us to renew: Visit the gym or call us.\n\n` +
+    `Thank you for being part of our family! 🙏\n` +
+    `— H4 Fitness Studio Semmancheri`;
+
+  return sendWhatsAppMessage(phone, message);
+};
+

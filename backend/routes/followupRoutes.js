@@ -1,48 +1,22 @@
 import express from "express";
-import mongoose from "mongoose"; // ✅ FIX ADDED
-import Followup from "../models/Followup.js";
-import GymBill from "../models/GymBill.js";
+import prisma from "../utils/db.js";
 
 const router = express.Router();
 
 // ✅ CREATE follow-up
 router.post("/", async (req, res) => {
   try {
-    const {
-      clientId,
-      followupType,
-      scheduleDate,
-      scheduleTime,
-      response,
-      createdBy,
-    } = req.body;
+    const { inquiryId, date, notes, status } = req.body;
 
-    let client = null;
-
-    // ✅ Check if it's a valid ObjectId
-    if (mongoose.Types.ObjectId.isValid(clientId)) {
-      client = await GymBill.findById(clientId);
-    }
-
-    // ✅ If not found, try memberId
-    if (!client) {
-      client = await GymBill.findOne({ memberId: clientId });
-    }
-
-    if (!client) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
-    const followup = new Followup({
-      client: client._id,
-      followupType,
-      scheduleDate,
-      scheduleTime,
-      response,
-      createdBy,
+    const followup = await prisma.followup.create({
+      data: {
+        inquiryId,
+        date: date ? new Date(date) : new Date(),
+        notes,
+        status: status || "Pending",
+      },
+      include: { inquiry: true },
     });
-
-    await followup.save();
 
     res.status(201).json(followup);
   } catch (err) {
@@ -54,9 +28,10 @@ router.post("/", async (req, res) => {
 // ✅ GET all follow-ups
 router.get("/", async (req, res) => {
   try {
-    const followups = await Followup.find()
-      .populate("client", "client contactNumber memberId")
-      .sort({ createdAt: -1 });
+    const followups = await prisma.followup.findMany({
+      include: { inquiry: true },
+      orderBy: { createdAt: "desc" },
+    });
 
     res.status(200).json(followups);
   } catch (err) {
@@ -70,15 +45,11 @@ router.put("/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
 
-    const updated = await Followup.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: "Follow-up not found" });
-    }
+    const updated = await prisma.followup.update({
+      where: { id: req.params.id },
+      data: { status },
+      include: { inquiry: true },
+    });
 
     res.status(200).json(updated);
   } catch (err) {
@@ -90,12 +61,7 @@ router.put("/:id/status", async (req, res) => {
 // ✅ DELETE
 router.delete("/:id", async (req, res) => {
   try {
-    const deleted = await Followup.findByIdAndDelete(req.params.id);
-
-    if (!deleted) {
-      return res.status(404).json({ message: "Follow-up not found" });
-    }
-
+    await prisma.followup.delete({ where: { id: req.params.id } });
     res.status(200).json({ message: "Follow-up deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting:", err.message);

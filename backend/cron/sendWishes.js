@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import GymBill from "../models/GymBill.js";
+import prisma from "../utils/db.js";
 import {
   sendBirthdayMail,
   sendAnniversaryMail
@@ -16,12 +16,11 @@ export const runWishesJob = async () => {
   const day = today.getDate();
   const month = today.getMonth() + 1;
 
-  const users = await GymBill.find();
+  const users = await prisma.client.findMany();
   const results = [];
 
   for (let user of users) {
     const dob = user.dateOfBirth ? new Date(user.dateOfBirth) : null;
-    const ann = user.anniversary ? new Date(user.anniversary) : null;
 
     if (
       dob &&
@@ -29,20 +28,9 @@ export const runWishesJob = async () => {
       dob.getDate() === day &&
       dob.getMonth() + 1 === month
     ) {
-      if (user.email) await sendBirthdayMail(user.email, user.client);
-      if (user.contactNumber) await sendBirthdayWhatsApp(user.contactNumber, user.client);
-      results.push({ type: "Birthday", client: user.client, contact: user.contactNumber, email: user.email });
-    }
-
-    if (
-      ann &&
-      !isNaN(ann.getTime()) &&
-      ann.getDate() === day &&
-      ann.getMonth() + 1 === month
-    ) {
-      if (user.email) await sendAnniversaryMail(user.email, user.client);
-      if (user.contactNumber) await sendAnniversaryWhatsApp(user.contactNumber, user.client);
-      results.push({ type: "Anniversary", client: user.client, contact: user.contactNumber, email: user.email });
+      if (user.email) await sendBirthdayMail(user.email, user.name);
+      if (user.contactNumber) await sendBirthdayWhatsApp(user.contactNumber, user.name);
+      results.push({ type: "Birthday", client: user.name, contact: user.contactNumber, email: user.email });
     }
   }
 

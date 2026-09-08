@@ -73,3 +73,5 @@ uploads/
 .dataconnect
 
 
+.neon
+.env.local

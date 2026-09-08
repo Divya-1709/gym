@@ -1,13 +1,19 @@
 import express from "express";
-import Expense from "../models/Expense.js";
+import prisma from "../utils/db.js";
 
 const router = express.Router();
 
 /* ➕ Add Expense */
 router.post("/", async (req, res) => {
   try {
-    const expense = new Expense(req.body);
-    await expense.save();
+    const { amount, date, ...rest } = req.body;
+    const expense = await prisma.expense.create({
+      data: {
+        ...rest,
+        amount: parseFloat(amount),
+        date: date ? new Date(date) : new Date(),
+      },
+    });
     res.status(201).json(expense);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -17,7 +23,9 @@ router.post("/", async (req, res) => {
 /* 📥 Get All Expenses */
 router.get("/", async (req, res) => {
   try {
-    const expenses = await Expense.find().sort({ expenseDate: -1 });
+    const expenses = await prisma.expense.findMany({
+      orderBy: { date: "desc" },
+    });
     res.json(expenses);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -27,14 +35,19 @@ router.get("/", async (req, res) => {
 /* 📊 Monthly Summary */
 router.get("/summary/monthly", async (req, res) => {
   try {
-    const summary = await Expense.aggregate([
-      {
-        $group: {
-          _id: { $month: "$expenseDate" },
-          total: { $sum: "$amount" },
-        },
-      },
-    ]);
+    const expenses = await prisma.expense.findMany();
+    const monthlyMap = {};
+
+    expenses.forEach((e) => {
+      const month = new Date(e.date).getMonth() + 1; // 1-indexed
+      monthlyMap[month] = (monthlyMap[month] || 0) + e.amount;
+    });
+
+    const summary = Object.keys(monthlyMap).map((m) => ({
+      _id: parseInt(m),
+      total: monthlyMap[m],
+    }));
+
     res.json(summary);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -44,7 +57,7 @@ router.get("/summary/monthly", async (req, res) => {
 /* ❌ Delete Expense */
 router.delete("/:id", async (req, res) => {
   try {
-    await Expense.findByIdAndDelete(req.params.id);
+    await prisma.expense.delete({ where: { id: req.params.id } });
     res.json({ message: "Expense deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -52,3 +65,4 @@ router.delete("/:id", async (req, res) => {
 });
 
 export default router;
+
