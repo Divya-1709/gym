@@ -2,18 +2,29 @@ import dotenv from "dotenv";
 dotenv.config();
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
-import prisma from "./utils/db.js";
+
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function test() {
   try {
     await prisma.$connect();
-    console.log("✅ NEON CONNECTED VIA IPV4 & GOOGLE DNS");
+    console.log("✅ NEON CONNECTED VIA PRISMA PG ADAPTER!");
+    const count = await prisma.user.count();
+    console.log("✅ User count in DB:", count);
+    await prisma.$disconnect();
+    await pool.end();
     process.exit(0);
   } catch (e) {
-    console.error("❌ FAIL:", e.message);
+    console.error("❌ FAIL:", e);
     process.exit(1);
   }
 }
 
 test();
+
