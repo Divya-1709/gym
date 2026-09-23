@@ -5,7 +5,8 @@ async function getPDFModules() {
   const autoTable = (await import('jspdf-autotable')).default;
   return { jsPDF, autoTable };
 }
-import { generateCurrentPackageBill } from "../components/BillGenerator";
+import { generateCurrentPackageBill, getInvoicePDFFile } from "../components/BillGenerator";
+import { formatWhatsAppPhone, getDirectWhatsAppUrl, openDirectWhatsApp, getWhatsAppDesktopAppUrl } from "../utils/whatsapp";
 
 import logo from  "../assets/logo.jpeg"
 import { API_URI } from "../api/api";
@@ -26,6 +27,7 @@ interface GymBill {
   workoutHours?: string;
   areaAddress?: string;
   remarks?: string;
+  profilePicture?: string;
 
   package: string;
   joiningDate: string;
@@ -72,12 +74,23 @@ interface Trainer {
   name: string;
 }
 
-const Clients: React.FC = () => {
+export interface RenewalTarget {
+  clientId?: string;
+  search?: string;
+  openRenewModal?: boolean;
+}
+
+interface ClientsProps {
+  initialTarget?: RenewalTarget | null;
+  onClearTarget?: () => void;
+}
+
+const Clients: React.FC<ClientsProps> = ({ initialTarget, onClearTarget }) => {
 const [clients, setClients] = useState<GymBill[]>([]);
 const [selectedClient, setSelectedClient] = useState<GymBill | null>(null);
 const [selectedClients, setSelectedClients] = useState<string[]>([]);
 const [filteredClients, setFilteredClients] = useState<GymBill[]>([]);
-const [trainers, setTrainers] = useState<Trainer[]>([]);
+const [_trainers, setTrainers] = useState<Trainer[]>([]);
 const [editRenewData, setEditRenewData] = useState<any>(null);
 const [editRenewId, setEditRenewId] = useState<string | null>(null);
 const [editClientId, setEditClientId] = useState<string | null>(null);
@@ -92,7 +105,7 @@ const refreshSelectedClient = async (clientId: string) => {
 
 // ✅ Move filters here (before useEffect)
 const [filters, setFilters] = useState({
-  search: "",
+  search: initialTarget?.search || "",
   package: "",
   status: "",
   trainer: "",
@@ -150,11 +163,14 @@ const handleDeleteRenew = async (renewId: string, clientId: string) => {
 useEffect(() => {
   let filtered = [...clients];
   if (filters.search) {
-    const term = filters.search.toLowerCase();
+    const term = filters.search.toLowerCase().trim();
     filtered = filtered.filter(
       (c) =>
         c.client?.toLowerCase().includes(term) ||
-        c.contactNumber?.includes(term)
+        c.contactNumber?.includes(term) ||
+        c.alternateContact?.includes(term) ||
+        c.memberId?.toString().toLowerCase().includes(term) ||
+        c._id?.toLowerCase().includes(term)
     );
   }
   if (filters.package) filtered = filtered.filter((c) => c.package === filters.package);
@@ -214,9 +230,24 @@ const [renewData, setRenewData] = useState({
   trainer: "",
   paymentMethod: "",
 });
-  const [showRenewForm, setShowRenewForm] = useState<string | null>(null);
+  const [showRenewForm, setShowRenewForm] = useState<string | null>(
+    initialTarget?.openRenewModal && initialTarget?.clientId
+      ? initialTarget.clientId
+      : null
+  );
+
+  useEffect(() => {
+    if (initialTarget) {
+      if (initialTarget.search !== undefined) {
+        setFilters((prev) => ({ ...prev, search: initialTarget.search || "" }));
+      }
+      if (initialTarget.openRenewModal && initialTarget.clientId) {
+        setShowRenewForm(initialTarget.clientId);
+      }
+    }
+  }, [initialTarget]);
   const [packages, setPackages] = useState<
-  { _id: string; packageName: string; days: number; price: number }[]
+  { id: string; name: string; durationDays: number; price: number }[]
 >([]);
 
 
@@ -243,11 +274,92 @@ const fetchPackages = async () => {
   };
   
 
-  const handleRenew = async (id: string) => {
+  const [renewalSuccess, setRenewalSuccess] = useState<{
+    client: GymBill;
+    phone: string;
+    pdfFile: File;
+    message: string;
+    waLink: string;
+  } | null>(null);
+
+  const handleRenew = async (id: string, clientObj?: GymBill) => {
     try {
-      await axios.put(`${API_URI}/gymbill/renew/${id}`, renewData);
-      alert("✅ Subscription renewed successfully!");
+      const res = await axios.put(`${API_URI}/gymbill/renew/${id}`, renewData);
+      const updatedClientData = res.data?.data;
+
+      // 1️⃣ Prepare client with updated renewal info for invoice generation
+      const baseClient = clientObj || clients.find((c) => c._id === id);
+      const updatedClient: GymBill = {
+        ...(baseClient || {}),
+        ...(updatedClientData || {}),
+        package: renewData.package || baseClient?.package,
+        joiningDate: renewData.joiningDate || baseClient?.joiningDate,
+        endDate: renewData.endDate || baseClient?.endDate,
+        price: Number(renewData.price) || baseClient?.price || 0,
+        discountAmount: Number(renewData.discountAmount) || 0,
+        amountPaid: Number(renewData.amountPaid) || 0,
+        balance: Number(renewData.balance) || 0,
+        initialPaymentMode: renewData.paymentMethod || baseClient?.initialPaymentMode || "Cash",
+      } as GymBill;
+
+      // 2️⃣ Generate the Invoice PDF as an actual File object & download to disk
+      let pdfFile: File | null = null;
+      try {
+        pdfFile = await getInvoicePDFFile(updatedClient);
+        await generateCurrentPackageBill(updatedClient);
+      } catch (pdfErr) {
+        console.error("❌ PDF generation error:", pdfErr);
+      }
+
+      // 3️⃣ Open WhatsApp directly with the renewal success message & attached format
+      const formattedPhone = formatWhatsAppPhone(updatedClient.contactNumber);
+      const balanceText = Number(updatedClient.balance) > 0 ? `\n💳 *Pending Balance:* ₹${updatedClient.balance}` : "";
+
+      const message = `✅ *Membership Renewal Successful!* 🎉\n\n` +
+        `Hi *${updatedClient.client}* (Member ID: *${updatedClient.memberId || "N/A"}*),\n\n` +
+        `Your gym membership has been renewed successfully at *Elite Fitness*! 💪🏋️‍♂️\n\n` +
+        `📦 *Package:* ${updatedClient.package || "Membership Package"}\n` +
+        `📅 *Valid From:* ${updatedClient.joiningDate}\n` +
+        `📅 *Valid Till:* ${updatedClient.endDate}\n` +
+        `💰 *Amount Paid:* ₹${updatedClient.amountPaid}${balanceText}\n\n` +
+        `📎 Please find your invoice attached to this message.\n\n` +
+        `Thank you for renewing your journey with *Elite Fitness*! Stay fit & strong! 💪🏋️‍♂️\n` +
+        `— *Elite Fitness*`;
+
+      const waLink = getDirectWhatsAppUrl(updatedClient.contactNumber, message);
+
+      // 4️⃣ Try Web Share API with attached PDF file directly
+      let sharedNatively = false;
+      if (pdfFile && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        try {
+          await navigator.share({
+            files: [pdfFile],
+            title: `Invoice - ${updatedClient.client}`,
+            text: message,
+          });
+          sharedNatively = true;
+        } catch (shareErr) {
+          console.log("Native share dismissed");
+        }
+      }
+
+      // 5️⃣ If not shared via native share dialog, open WhatsApp Web chat directly
+      if (!sharedNatively && waLink) {
+        window.open(waLink, "_blank");
+      }
+
+      if (pdfFile && formattedPhone) {
+        setRenewalSuccess({
+          client: updatedClient,
+          phone: formattedPhone,
+          pdfFile,
+          message,
+          waLink,
+        });
+      }
+
       setShowRenewForm(null);
+      if (onClearTarget) onClearTarget();
       fetchClients();
     } catch (err) {
       console.error("❌ Renewal failed:", err);
@@ -255,11 +367,13 @@ const fetchPackages = async () => {
     }
   };
 
-  const getProfileImage = (id?: string) => {
-  return id
-    ? `${API_URI}/gymbill/image/${id}`
-    : "/default-avatar.png";
-};
+  const getProfileImage = (client: GymBill) => {
+    if (client.profilePicture) {
+      // profilePicture is stored as a base64 data URL
+      return client.profilePicture;
+    }
+    return null; // will render initials avatar instead
+  };
 
 
 
@@ -342,14 +456,10 @@ const calculateEndDate = (joiningDate: string, days: number) => {
 
 const sendWhatsAppReminder = async (client: GymBill) => {
   try {
-    // Build the WhatsApp link immediately (avoids popup blocker on async window.open)
-    const phone = client.contactNumber?.replace(/\D/g, "");
-    const formattedPhone = phone?.length === 10 ? `91${phone}` : phone;
-    const message = `🔔 *Subscription Expiry Reminder*\n\nHi *${client.client}* (Member ID: *${client.memberId || "N/A"}*),\n\nYour gym membership (${client.package || "Package"}) at *H4 Fitness Studio Semmancheri* is expiring / has expired on *${client.endDate}*.\n\nPlease renew your membership to continue your fitness journey without interruption. 💪🏋️‍♂️\n\nThank you!\nH4 Fitness Studio Semmancheri`;
-    const waLink = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+    const message = `🔔 *Subscription Expiry Reminder*\n\nHi *${client.client}* (Member ID: *${client.memberId || "N/A"}*),\n\nYour gym membership (${client.package || "Package"}) at *Elite Fitness* is expiring / has expired on *${client.endDate}*.\n\nPlease renew your membership to continue your fitness journey without interruption. 💪🏋️‍♂️\n\nThank you!\nElite Fitness`;
 
-    // Open WhatsApp link immediately (not blocked by browser)
-    window.open(waLink, "_blank");
+    // Directly redirect into client's WhatsApp chat without manual searching
+    openDirectWhatsApp(client.contactNumber, message);
 
     // Also call backend to log / send via API if configured
     if (client._id) {
@@ -389,10 +499,10 @@ const sendWhatsAppReminder = async (client: GymBill) => {
     <label className="text-sm font-semibold mb-1">Search</label>
     <input
       type="text"
-      placeholder="Search by name or contact"
+      placeholder="Search by name, ID, or mobile"
       value={filters.search}
       onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-      className="border px-3 py-2 rounded-md w-56"
+      className="border px-3 py-2 rounded-md w-64"
     />
   </div>
 
@@ -611,7 +721,10 @@ const sendWhatsAppReminder = async (client: GymBill) => {
   <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
     <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl p-4 relative">
       <button
-        onClick={() => setShowRenewForm(null)}
+        onClick={() => {
+          setShowRenewForm(null);
+          if (onClearTarget) onClearTarget();
+        }}
         className="absolute top-2 right-4 text-xl font-bold text-gray-700 hover:text-red-600"
       >
         ×
@@ -657,9 +770,9 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             value={renewData.package}
             onChange={(e) => {
               const selected = packages.find(
-                (p) => p.packageName === e.target.value
+                (p) => p.name === e.target.value
               );
-              const newDays = selected ? selected.days : 0;
+              const newDays = selected ? selected.durationDays : 0;
               const newPrice = selected ? selected.price : 0;
               const newEndDate = calculateEndDate(
                 renewData.joiningDate,
@@ -676,8 +789,8 @@ const sendWhatsAppReminder = async (client: GymBill) => {
           >
             <option value="">Select Package</option>
             {packages.map((p) => (
-              <option key={p._id} value={p.packageName}>
-                {p.packageName}
+              <option key={p.id} value={p.name}>
+                {p.name}
               </option>
             ))}
           </select>
@@ -801,13 +914,16 @@ const sendWhatsAppReminder = async (client: GymBill) => {
 
       <div className="flex justify-end mt-6 space-x-3">
         <button
-          onClick={() => setShowRenewForm(null)}
+          onClick={() => {
+            setShowRenewForm(null);
+            if (onClearTarget) onClearTarget();
+          }}
           className="bg-gray-300 px-3 py-1.5 rounded-md"
         >
           Cancel
         </button>
         <button
-          onClick={() => handleRenew(client._id)}
+          onClick={() => handleRenew(client._id, client)}
           className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1.5 rounded-md"
         >
           Save Renewal
@@ -971,11 +1087,17 @@ const sendWhatsAppReminder = async (client: GymBill) => {
 
       {/* 👤 Header */}
       <div className="flex items-center gap-5 border-b pb-4 mb-6">
-        <img
-          src={getProfileImage(selectedClient._id)}
-          alt="Profile"
-          className="w-28 h-28 rounded-full border-4 border-yellow-400 object-cover"
-        />
+        {getProfileImage(selectedClient) ? (
+          <img
+            src={getProfileImage(selectedClient)!}
+            alt="Profile"
+            className="w-28 h-28 rounded-full border-4 border-yellow-400 object-cover"
+          />
+        ) : (
+          <div className="w-28 h-28 rounded-full border-4 border-yellow-400 bg-yellow-100 flex items-center justify-center text-4xl font-bold text-yellow-600">
+            {selectedClient.client?.charAt(0)?.toUpperCase() || "?"}
+          </div>
+        )}
         <div>
           <h3 className="text-2xl font-bold text-gray-800">
             {selectedClient.client}
@@ -1127,6 +1249,110 @@ const sendWhatsAppReminder = async (client: GymBill) => {
     </div>
   </div>
 )}
+
+      {/* 📄 WhatsApp Attachment Dialog */}
+      {renewalSuccess && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl shadow-2xl overflow-hidden border border-yellow-200">
+            <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-base">
+                <span>✅</span>
+                <span>Renewal Success & Invoice Ready</span>
+              </div>
+              <button
+                onClick={() => setRenewalSuccess(null)}
+                className="text-white hover:text-red-200 text-xl font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-sm">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-900">
+                <div className="font-bold text-base mb-0.5">
+                  {renewalSuccess.client.client} (ID: {renewalSuccess.client.memberId})
+                </div>
+                <div className="text-xs text-yellow-800">
+                  Renewed for <b>{renewalSuccess.client.package}</b> · Amount Paid: <b>₹{renewalSuccess.client.amountPaid}</b>
+                </div>
+              </div>
+
+              <div className="space-y-2 bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700">
+                <div className="font-semibold text-gray-900 flex items-center gap-1.5">
+                  <span>📎</span>
+                  <span>Invoice PDF: <b>{renewalSuccess.pdfFile.name}</b></span>
+                </div>
+                <p className="text-gray-500">
+                  The invoice PDF has been downloaded to your downloads folder. In WhatsApp, click <b>📎 (Attach Document)</b> or drag & drop the downloaded PDF to send it as an attached document.
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                {navigator.canShare && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (navigator.canShare && navigator.canShare({ files: [renewalSuccess.pdfFile] })) {
+                        try {
+                          await navigator.share({
+                            files: [renewalSuccess.pdfFile],
+                            title: `Invoice - ${renewalSuccess.client.client}`,
+                            text: renewalSuccess.message,
+                          });
+                        } catch (e) {}
+                      }
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm cursor-pointer"
+                  >
+                    <span>📤 Share PDF File Directly to WhatsApp</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.open(renewalSuccess.waLink, "_blank");
+                  }}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm cursor-pointer"
+                >
+                  <span>💬 Open Client Chat Directly in WhatsApp Web</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const appUrl = getWhatsAppDesktopAppUrl(renewalSuccess.phone, renewalSuccess.message);
+                    window.location.href = appUrl;
+                  }}
+                  className="w-full bg-green-700 hover:bg-green-800 text-white font-semibold py-2 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm cursor-pointer text-xs"
+                >
+                  <span>💻 Open in WhatsApp Desktop App</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    generateCurrentPackageBill(renewalSuccess.client);
+                  }}
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition text-xs cursor-pointer"
+                >
+                  <span>📥 Re-download Invoice PDF</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 px-5 py-3 flex justify-end border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setRenewalSuccess(null)}
+                className="text-xs font-semibold text-gray-600 hover:text-gray-900 px-3 py-1.5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

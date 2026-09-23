@@ -1,5 +1,5 @@
 export const newClientTemplate = (client, memberId) => `
-  <h2>Welcome to H4 fitnessstudio Semmancheri 💪</h2>
+  <h2>Welcome to Elite Fitness 💪</h2>
   <p>Hi ${client},</p>
   <p>Your membership has been successfully created.</p>
   <p><b>Member ID:</b> ${memberId}</p>
@@ -16,12 +16,12 @@ export const renewalTemplate = (client, endDate) => `
 export const birthdayTemplate = (client) => `
   <h2>🎉 Happy Birthday ${client}!</h2>
   <p>Wishing you a year full of health, strength, and success.</p>
-  <p>– H4 fitnessstudio Semmancheri Team 💪</p>
+  <p>– Elite Fitness Team 💪</p>
 `;
 
 export const anniversaryTemplate = (client) => `
   <h2>🎊 Happy Anniversary!</h2>
   <p>Dear ${client},</p>
-  <p>Thank you for being part of H4 fitnessstudio Semmancheri.</p>
+  <p>Thank you for being part of Elite Fitness.</p>
   <p>We truly value your journey with us 💙</p>
 `;

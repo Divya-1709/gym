@@ -1,12 +1,19 @@
 import express from "express";
 import multer from "multer";
 import prisma from "../utils/db.js";
+import path from "path";
+import fs from "fs";
+import { generateInvoicePDF } from "../utils/generateInvoice.js";
 import {
   sendNewClientMail,
   sendRenewalMail,
   sendExpiryMail
 } from "../utils/mailer.js";
-import { sendNewClientWhatsApp, sendExpiryReminderWhatsApp } from "../utils/whatsapp.js";
+import {
+  sendNewClientWhatsApp,
+  sendExpiryReminderWhatsApp,
+  sendRenewalSuccessWhatsApp,
+} from "../utils/whatsapp.js";
 import { runWishesJob } from "../cron/sendWishes.js";
 import { runExpiryRemindersJob } from "../cron/sendExpiryReminders.js";
 
@@ -19,7 +26,8 @@ const ALLOWED_BILL_FIELDS = [
   "taxId", "workoutHours", "areaAddress", "remarks", "package", "days", "joiningDate",
   "endDate", "sessions", "price", "discount", "discountAmount", "admissionCharges",
   "tax", "amountPayable", "amountPaid", "balance", "amount", "initialPaymentMode",
-  "followupDate", "status", "paymentMethodDetail", "appointTrainer", "clientRep"
+  "followupDate", "status", "paymentMethodDetail", "appointTrainer", "clientRep",
+  "profilePicture"
 ];
 
 function sanitizeBillInput(body) {
@@ -197,6 +205,7 @@ router.put("/renew/:id", async (req, res) => {
       amountPaid,
       remarks,
       trainer,
+      paymentMethod,
     } = req.body;
 
     const client = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
@@ -213,7 +222,7 @@ router.put("/renew/:id", async (req, res) => {
       balance: client.balance,
       remarks: client.remarks,
       trainer: client.appointTrainer,
-      modeOfPayment: client.initialPaymentMode,
+      modeOfPayment: paymentMethod || client.initialPaymentMode,
       date: new Date(),
     };
 
@@ -240,12 +249,31 @@ router.put("/renew/:id", async (req, res) => {
         balance: newBalance,
         remarks,
         appointTrainer: trainer,
+        initialPaymentMode: paymentMethod || client.initialPaymentMode,
         status: "Active",
       },
     });
 
     if (updated.email) {
       await sendRenewalMail(updated.email, updated.client, updated.endDate);
+    }
+
+    // 📱 Send WhatsApp renewal success notification
+    if (updated.contactNumber) {
+      try {
+        await sendRenewalSuccessWhatsApp(
+          updated.contactNumber,
+          updated.client,
+          updated.memberId,
+          updated.package,
+          updated.joiningDate,
+          updated.endDate,
+          updated.amountPaid,
+          updated.balance
+        );
+      } catch (waErr) {
+        console.error("WhatsApp renewal error:", waErr);
+      }
     }
 
     res.status(200).json({
@@ -255,6 +283,40 @@ router.put("/renew/:id", async (req, res) => {
   } catch (err) {
     console.error("Renewal error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------
+// 📄 Get / Download Invoice PDF
+// -----------------------------
+router.get("/invoice-pdf/:id", async (req, res) => {
+  try {
+    const bill = await prisma.gymBill.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!bill) return res.status(404).send("Invoice not found");
+
+    let profilePicBuffer = null;
+    if (bill.profilePicture) {
+      const picPath = path.join(process.cwd(), "uploads", bill.profilePicture);
+      if (fs.existsSync(picPath)) {
+        try {
+          profilePicBuffer = fs.readFileSync(picPath);
+        } catch (e) {}
+      }
+    }
+
+    const pdfBuffer = await generateInvoicePDF(bill, profilePicBuffer);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="invoice_${bill.memberId || bill.id}.pdf"`
+    );
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error generating invoice PDF:", err);
+    res.status(500).send("Error generating invoice PDF: " + err.message);
   }
 });
 

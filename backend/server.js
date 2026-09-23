@@ -20,6 +20,8 @@ import multer from "multer"; // ✅ use ES Module import instead of require
 import path from "path";
 import { fileURLToPath } from "url"; // ✅ Needed for __dirname in ESM
 import expenseRoutes from "./routes/expenseRoutes.js";
+import trainerPayslipRoutes from "./routes/trainerPayslipRoutes.js";
+
 import "./cron/sendWishes.js";
 import "./cron/sendExpiryReminders.js";
 
@@ -57,11 +59,14 @@ app.use("/api/clients", clientRoutes);
 app.use("/api/memberships", membershipRoutes);
 app.use("/api/groupclasses", groupClassRoutes);
 app.use("/api/personaltrainings", ptRoutes);
+app.use("/api/pts", ptRoutes);
 app.use("/api/subscriptions", subRoutes);
 app.use("/api/followups", followupRoutes);
 app.use("/api/gymbill", gymBillRoutes);
 app.use("/api/packages", packageRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/trainer-payslips", trainerPayslipRoutes);
+
 
 app.get("/", (req, res) => {
   res.status(200).json({

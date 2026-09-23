@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
-import Clients from "./components/Clients";
+import Clients, { RenewalTarget } from "./components/Clients";
 import Login from "./components/Login";
 import Inquiry from "./components/Inquiry";
 import TrainerPage from "./components/TrainerPage";
@@ -19,6 +19,7 @@ import Expenses from "./components/Expenses";
 function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [renewalTarget, setRenewalTarget] = useState<RenewalTarget | null>(null);
 
   useEffect(() => {
     const storedLogin = localStorage.getItem("isLoggedIn");
@@ -35,12 +36,31 @@ function App() {
     localStorage.removeItem("isLoggedIn");
   };
 
+  const handleNavigate = (page: string) => {
+    setRenewalTarget(null);
+    setCurrentPage(page);
+  };
+
+  const handleNavigateToRenewal = (client: any) => {
+    setRenewalTarget({
+      clientId: client._id,
+      search: client.client || client.contactNumber || "",
+      openRenewModal: true,
+    });
+    setCurrentPage("clients");
+  };
+
   const renderPage = () => {
     switch (currentPage) {
       case "dashboard":
-        return <Dashboard />;
+        return <Dashboard onNavigateToRenewal={handleNavigateToRenewal} />;
       case "clients":
-        return <Clients />;
+        return (
+          <Clients
+            initialTarget={renewalTarget}
+            onClearTarget={() => setRenewalTarget(null)}
+          />
+        );
       case "inquiry":
         return <Inquiry />;
       case "trainers":
@@ -59,8 +79,8 @@ function App() {
         return <Packages />;
       case "managebalance":
         return <ManageBalance />; // ✅ NEW PAGE
-        case "expenses":
-      return <Expenses />;
+      case "expenses":
+        return <Expenses />;
       default:
         return <ComingSoon />;
     }
@@ -72,7 +92,7 @@ function App() {
     <div className="flex h-screen bg-gray-100 overflow-hidden">
       <Sidebar
         currentPage={currentPage}
-        onNavigate={setCurrentPage}
+        onNavigate={handleNavigate}
         onLogout={handleLogout}
       />
       <main className="flex-1 p-4 overflow-y-auto">{renderPage()}</main>

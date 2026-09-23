@@ -187,6 +187,7 @@ model GymBill {
   paymentHistory      Json?
   renewalHistory      Json?
   balanceHistory      Json?
+  profilePicture      String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
@@ -203,10 +204,29 @@ model Package {
 
 model Expense {
   id          String   @id @default(uuid())
+  title       String?  @default("")
   category    String
   amount      Float
+  paymentMode String?  @default("Cash")
   date        DateTime @default(now())
+  expenseDate DateTime @default(now())
+  notes       String?
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model TrainerPayslip {
+  id            String   @id @default(uuid())
+  trainerName   String
+  month         String
+  year          String
+  basicSalary   Float    @default(0)
+  allowances    Float    @default(0)
+  deductions    Float    @default(0)
+  netSalary     Float    @default(0)
+  paymentMode   String?  @default("Cash")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

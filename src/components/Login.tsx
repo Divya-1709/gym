@@ -58,13 +58,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="flex flex-col items-center justify-center mb-6">
           <img
             src={logo}
-            alt="FitPass Logo"
-            className="w-16 h-16 mb-2 rounded-full shadow-lg border border-yellow-400"
+            alt="Gym Logo"
+            className="w-20 h-20 mb-2 object-contain bg-white rounded-xl p-1 shadow-lg border border-yellow-400"
           />
         </div>
 
-        <h1 className="text-center text-yellow-400 mb-6 text-xl">
-          H4 Fitness Studio Semmancheri
+        <h1 className="text-center text-yellow-400 mb-6 text-xl font-bold">
+          Elite Fitness Kovilpatti
         </h1>
 
         <p className="text-center text-gray-400 mb-6 text-sm">

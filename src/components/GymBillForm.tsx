@@ -8,9 +8,9 @@ interface Trainer {
 }
 
 interface Package {
-  _id: string;
-  packageName: string;
-  days: number;
+  id: string;
+  name: string;
+  durationDays: number;
   price: number;
 }
 
@@ -318,8 +318,8 @@ const GymBillForm: React.FC = () => {
           name="package"
           value={formData.package}
           onChange={(e) => {
-            const selected = packages.find((p) => p.packageName === e.target.value);
-            const days = selected ? selected.days : 0;
+            const selected = packages.find((p) => p.name === e.target.value);
+            const days = selected ? selected.durationDays : 0;
             const price = selected ? selected.price : 0;
             const newEnd = calculateEndDate(formData.joiningDate, days);
 
@@ -335,8 +335,8 @@ const GymBillForm: React.FC = () => {
         >
           <option value="">Select Package</option>
           {packages.map((pkg) => (
-            <option key={pkg._id} value={pkg.packageName}>
-              {pkg.packageName}
+            <option key={pkg.id} value={pkg.name}>
+              {pkg.name}
             </option>
           ))}
         </select>

@@ -133,9 +133,7 @@ const [packages, setPackages] = useState<string[]>([]);
 const fetchPackages = async () => {
   try {
     const res = await axios.get(`${API_URI}/packages`);
-    console.log("PACKAGES RESPONSE:", res.data);  // 👈 CHECK THIS
-    const packageNames = res.data.map((p: any) => p.packageName);
-
+    const packageNames = res.data.map((p: any) => p.name);
     setPackages(packageNames);
   } catch (err) {
     console.error("Failed to load packages", err);

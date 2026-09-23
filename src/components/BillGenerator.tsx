@@ -6,7 +6,7 @@ async function getPDFModules() {
 
 import logo from "../assets/logo.jpeg";
 
-export const generateCurrentPackageBill = async (client: any) => {
+export const generateCurrentPackageBillDoc = async (client: any) => {
   const { jsPDF, autoTable } = await getPDFModules();
   const doc = new jsPDF("p", "mm", "a4");
 
@@ -17,14 +17,17 @@ export const generateCurrentPackageBill = async (client: any) => {
   doc.addImage(logo, "PNG", 14, 10, 30, 30);
 
   doc.setFontSize(14);
-  doc.text("H4 fitnessstudio Semmancheri", 50, 18);
+  doc.setFont("helvetica", "bold");
+  doc.text("Elite Fitness", 50, 18);
 
   doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
   doc.text(
     [
-      "Address: 721, Kailasah Palaza, Plot No. 710, Nookampalayam Link Road, Semmancheri, Chennai-600119",
-      "Phone: +91 98404 31433",
-      "Email: h4fitness.semmancheri@gmail.com",
+      "Address: Nagajothi Campus, Ilayarasanendal Road, (Opposite EB office),",
+      "Nadarajapuram, Kovilpatti, Tamilnadu - 628502",
+      "Phone: +91 87782 85877",
+      "Email: elitefitnesskvp@gmail.com",
     ],
     50,
     24
@@ -125,8 +128,19 @@ export const generateCurrentPackageBill = async (client: any) => {
     14,
     278
   );
-  doc.text("H4 fitnessstudio Semmancheri", 90, 288);
+  doc.text("Elite Fitness Kovilpatti", 90, 288);
 
-  // ✅ THIS LINE NOW ALWAYS RUNS
-  doc.save(`Bill_${client.client}_${client.memberId}.pdf`);
+  return doc;
+};
+
+export const generateCurrentPackageBill = async (client: any) => {
+  const doc = await generateCurrentPackageBillDoc(client);
+  doc.save(`Bill_${client.client || "Client"}_${client.memberId || "Invoice"}.pdf`);
+};
+
+export const getInvoicePDFFile = async (client: any): Promise<File> => {
+  const doc = await generateCurrentPackageBillDoc(client);
+  const blob = doc.output("blob");
+  const filename = `Bill_${client.client || "Client"}_${client.memberId || "Invoice"}.pdf`;
+  return new File([blob], filename, { type: "application/pdf" });
 };

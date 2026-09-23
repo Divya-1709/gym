@@ -7,9 +7,9 @@ interface Trainer {
   name: string;
 }
 interface PackageData {
-  _id: string;
-  packageName: string;
-  days: number;
+  id: string;
+  name: string;
+  durationDays: number;
   price: number;
 }
 
@@ -157,8 +157,6 @@ const ClientEdit: React.FC = () => {
   if (!selectedClient?._id) return;
 
   try {
-    const data = new FormData();
-
     const safeForm: any = { ...formData };
 
     // ❌ remove fields that break backend
@@ -166,18 +164,14 @@ const ClientEdit: React.FC = () => {
     delete safeForm.renewalHistory;
     delete safeForm.totalPaidIncludingRenewals;
     delete safeForm.__v;
-
-    // ✔ send only fields that were changed
-    Object.entries(safeForm).forEach(([key, value]) => {
-      if (value !== (selectedClient as any)[key]) {
-        data.append(key, value as any);
-      }
-    });
+    delete safeForm._id;
+    delete safeForm.createdAt;
+    delete safeForm.updatedAt;
 
     await axios.put(
       `${API_URI}/gymbill/${selectedClient._id}`,
-      data,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      safeForm,
+      { headers: { "Content-Type": "application/json" } }
     );
 
     alert("Client updated successfully!");
@@ -247,11 +241,14 @@ const ClientEdit: React.FC = () => {
                   <td className="py-2 px-3">
                     {client.profilePicture ? (
                       <img
-                        src={`${API_URI}/gymbill/image/${client._id}`}
+                        src={client.profilePicture}
+                        alt="Profile"
                         className="w-10 h-10 rounded-full object-cover border"
                       />
                     ) : (
-                      <span className="text-gray-400 italic">No Image</span>
+                      <div className="w-10 h-10 rounded-full bg-yellow-100 border border-yellow-300 flex items-center justify-center text-yellow-600 font-bold text-sm">
+                        {client.client?.charAt(0)?.toUpperCase() || "?"}
+                      </div>
                     )}
                   </td>
 
@@ -309,9 +306,16 @@ const ClientEdit: React.FC = () => {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) =>
-                setFormData({ ...formData, profilePicture: e.target.files?.[0] })
-              }
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    setFormData({ ...formData, profilePicture: reader.result as string });
+                  };
+                  reader.readAsDataURL(file);
+                }
+              }}
               className="mb-4"
             />
 
@@ -423,9 +427,9 @@ const ClientEdit: React.FC = () => {
                   value={formData.package || ""}
                   onChange={(e) => {
                     const pkg = packages.find(
-                      (p) => p.packageName === e.target.value
+                      (p) => p.name === e.target.value
                     );
-                    const days = pkg?.days || 0;
+                    const days = pkg?.durationDays || 0;
                     const price = pkg?.price || 0;
                     setFormData({
                       ...formData,
@@ -441,7 +445,7 @@ const ClientEdit: React.FC = () => {
                 >
                   <option value="">Select</option>
                   {packages.map((p) => (
-                    <option key={p._id}>{p.packageName}</option>
+                    <option key={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>

@@ -29,14 +29,15 @@ export function generateInvoicePDF(bill, profilePicBuffer) {
   doc.rect(leftX, y, logoSize, logoSize).stroke();
 }
 
-      const rightBlockX = leftX + pageWidth - 300;
-      doc.font("Helvetica").fontSize(9).fillColor("#000");
+      const rightBlockX = leftX + pageWidth - 320;
+      doc.font("Helvetica-Bold").fontSize(13).fillColor("#000");
+      doc.text("Elite Fitness", rightBlockX, y, { width: 320, align: "right" });
+      doc.font("Helvetica").fontSize(8.5).fillColor("#000");
+      doc.text("Address: Nagajothi Campus, Ilayarasanendal Road, (Opposite EB office), Nadarajapuram, Kovilpatti, Tamilnadu - 628502", rightBlockX, y + 16, { width: 320, align: "right" });
+      doc.text("Phone: +91 87782 85877", rightBlockX, y + 40, { width: 320, align: "right" });
+      doc.text("Email: elitefitnesskvp@gmail.com", rightBlockX, y + 52, { width: 320, align: "right" });
 
-      doc.text("Address: 721, Kailasah Palaza, Plot No. 710, Nookampalayam Link Road, Semmancheri, Chennai-600119", rightBlockX, y, { width: 300, align: "right" });
-      doc.text("Phone:  +91 98404 31433", rightBlockX, y + 12, { width: 300, align: "right" });
-      doc.text("E-Mail:  h4fitness.semmancheri@gmail.com", rightBlockX, y + 36, { width: 300, align: "right" });
-
-      y += Math.max(logoSize, 60) + 16;
+      y += Math.max(logoSize, 70) + 16;
 
       // ---------- Section Bar Style (Yellow) ----------
       const sectionBarHeight = 14;
@@ -172,7 +173,7 @@ export function generateInvoicePDF(bill, profilePicBuffer) {
           align: "center",
         });
 
-      doc.font("Helvetica").fontSize(10).text("One 2 Lifestyle FItness Studio", leftX, doc.page.height - 72, {
+      doc.font("Helvetica").fontSize(10).text("Elite Fitness Kovilpatti", leftX, doc.page.height - 72, {
         width: pageWidth,
         align: "center",
       });

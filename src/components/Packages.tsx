@@ -3,29 +3,31 @@ import axios from "axios";
 import { Trash2, PackagePlus, Pencil } from "lucide-react";
 import { API_URI } from "../api/api";
 
+// Backend (Prisma/PostgreSQL) returns: id, name, durationDays, price, type
 interface PackageData {
-  _id?: string;
-  packageName: string;
-  days: number;
+  id?: string;
+  name: string;
+  durationDays: number;
   price: number;
+  type?: string;
 }
 
-const API_URL = `${API_URI}/packages`; // ✅ Replace with your backend URL
+const API_URL = `${API_URI}/packages`;
 
 const Packages: React.FC = () => {
   const [packages, setPackages] = useState<PackageData[]>([]);
   const [formData, setFormData] = useState<PackageData>({
-    packageName: "",
-    days: 0,
+    name: "",
+    durationDays: 30,
     price: 0,
   });
 
   // Popup edit state
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<PackageData>({
-    _id: "",
-    packageName: "",
-    days: 0,
+    id: "",
+    name: "",
+    durationDays: 30,
     price: 0,
   });
 
@@ -38,19 +40,18 @@ const Packages: React.FC = () => {
     fetchPackages();
   }, []);
 
- const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const { name, value } = e.target;
-
-  setFormData({
-    ...formData,
-    [name]: name === "days" || name === "price" ? Number(value) : value,
-  });
-};
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData({
+      ...formData,
+      [name]: name === "durationDays" || name === "price" ? Number(value) : value,
+    });
+  };
 
   const handleAddPackage = async () => {
-    if (!formData.packageName || formData.days <= 0 || formData.price <= 0) return;
+    if (!formData.name || formData.durationDays <= 0 || formData.price <= 0) return;
     await axios.post(API_URL, formData);
-    setFormData({ packageName: "", days: 0, price: 0 });
+    setFormData({ name: "", durationDays: 30, price: 0 });
     fetchPackages();
   };
 
@@ -70,18 +71,17 @@ const Packages: React.FC = () => {
     setIsEditOpen(false);
   };
 
- const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const { name, value } = e.target;
-
-  setEditData({
-    ...editData,
-    [name]: name === "days" || name === "price" ? Number(value) : value,
-  });
-};
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setEditData({
+      ...editData,
+      [name]: name === "durationDays" || name === "price" ? Number(value) : value,
+    });
+  };
 
   const handleUpdate = async () => {
-    if (!editData._id) return;
-    await axios.put(`${API_URL}/${editData._id}`, editData);
+    if (!editData.id) return;
+    await axios.put(`${API_URL}/${editData.id}`, editData);
     setIsEditOpen(false);
     fetchPackages();
   };
@@ -109,9 +109,9 @@ const Packages: React.FC = () => {
     <label className="mb-1 text-sm font-medium">Package Name</label>
     <input
       type="text"
-      name="packageName"
+      name="name"
       placeholder="Enter package name"
-      value={formData.packageName}
+      value={formData.name}
       onChange={handleChange}
       className="border p-2 rounded-md w-full"
     />
@@ -121,9 +121,9 @@ const Packages: React.FC = () => {
     <label className="mb-1 text-sm font-medium">Days</label>
     <input
       type="number"
-      name="days"
+      name="durationDays"
       placeholder="Enter number of days"
-      value={formData.days}
+      value={formData.durationDays}
       onChange={handleChange}
       className="border p-2 rounded-md w-full"
     />
@@ -169,17 +169,17 @@ const Packages: React.FC = () => {
 
         <tbody>
           {packages.map((pkg) => (
-            <tr key={pkg._id} className="hover:bg-yellow-50 border-b">
+            <tr key={pkg.id} className="hover:bg-yellow-50 border-b">
 
-              <td className="px-6 py-3">{pkg.packageName}</td>
-              <td className="px-6 py-3">{pkg.days} days</td>
+              <td className="px-6 py-3">{pkg.name}</td>
+              <td className="px-6 py-3">{pkg.durationDays} days</td>
               <td className="px-6 py-3 text-yellow-700">₹{pkg.price}</td>
 
               <td className="px-6 py-3 flex justify-center gap-4">
                 <button onClick={() => openEditPopup(pkg)}>
                   <Pencil size={18} />
                 </button>
-                <button onClick={() => handleDelete(pkg._id)}>
+                <button onClick={() => handleDelete(pkg.id)}>
                   <Trash2 size={18} />
                 </button>
               </td>
@@ -200,16 +200,16 @@ const Packages: React.FC = () => {
       ) : (
         packages.map((pkg) => (
           <div
-            key={pkg._id}
+            key={pkg.id}
             className="border rounded-lg p-4 shadow-sm"
           >
 
             <h3 className="font-semibold text-gray-800">
-              {pkg.packageName}
+              {pkg.name}
             </h3>
 
             <p className="text-sm text-gray-600">
-              ⏱ {pkg.days} days
+              ⏱ {pkg.durationDays} days
             </p>
 
             <p className="text-sm text-yellow-600 font-medium">
@@ -225,7 +225,7 @@ const Packages: React.FC = () => {
               </button>
 
               <button
-                onClick={() => handleDelete(pkg._id)}
+                onClick={() => handleDelete(pkg.id)}
                 className="w-full bg-red-500 text-white py-1 rounded"
               >
                 Delete
@@ -245,16 +245,16 @@ const Packages: React.FC = () => {
    <label className="mb-1 text-sm font-medium">Package</label>
          <input
   type="text"
-  name="packageName"
-  value={editData.packageName}
+  name="name"
+  value={editData.name}
   onChange={handleEditChange}
   className="border p-2 w-full mb-3"
 />
    <label className="mb-1 text-sm font-medium">Days</label>
 <input
   type="number"
-  name="days"
-  value={editData.days}
+  name="durationDays"
+  value={editData.durationDays}
   onChange={handleEditChange}
   className="border p-2 w-full mb-3"
 />

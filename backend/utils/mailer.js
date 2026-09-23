@@ -22,9 +22,9 @@ export const sendInvoiceMail = async (email, name, bill, profilePic) => {
 
     // 2️⃣ Send email with attachment
     await transporter.sendMail({
-      from: `"H4 fitnessstudio Semmancheri 💪" <${process.env.EMAIL_USER}>`,
+      from: `"Elite Fitness 💪" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: "Your Invoice - H4 fitnessstudio Semmancheri 💪",
+      subject: "Your Invoice - Elite Fitness 💪",
       html: `
         <h2>Hi ${name},</h2>
         <p>Your invoice is attached below.</p>
@@ -47,7 +47,7 @@ export const sendInvoiceMail = async (email, name, bill, profilePic) => {
 const sendMail = async (to, subject, html, attachments = []) => {
   try {
     await transporter.sendMail({
-      from: `"H4 fitnessstudio Semmancheri 💪" <${process.env.EMAIL_USER}>`,
+      from: `"Elite Fitness 💪" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html,
@@ -63,7 +63,7 @@ const sendMail = async (to, subject, html, attachments = []) => {
 // ================= TEMPLATES =================
 const templates = {
   newClient: (name, memberId) => `
-    <h2>Welcome to H4 fitnessstudio Semmancheri 💪</h2>
+    <h2>Welcome to Elite Fitness 💪</h2>
     <p>Hi ${name},</p>
     <p>Your membership is created successfully.</p>
     <p><b>Member ID:</b> ${memberId}</p>
@@ -89,7 +89,7 @@ const templates = {
   expiryReminder: (name, endDate, packageName, balance) => `
     <h2>Subscription Expiry Reminder 🔔</h2>
     <p>Hi ${name},</p>
-    <p>Your gym membership (<b>${packageName || "Package"}</b>) at H4 Fitness Studio Semmancheri is expiring / has expired on <b>${endDate}</b>.</p>
+    <p>Your gym membership (<b>${packageName || "Package"}</b>) at Elite Fitness is expiring / has expired on <b>${endDate}</b>.</p>
     ${balance > 0 ? `<p><b>Pending Balance:</b> ₹${balance}</p>` : ""}
     <p>Please renew your monthly membership to continue your workouts! 💪🏋️‍♂️</p>
   `,
@@ -97,7 +97,7 @@ const templates = {
 
 // ================= EXPORT FUNCTIONS =================
 export const sendNewClientMail = (email, name, memberId) => {
-  return sendMail(email, "Welcome to H4 fitnessstudio Semmancheri 💪", templates.newClient(name, memberId));
+  return sendMail(email, "Welcome to Elite Fitness 💪", templates.newClient(name, memberId));
 };
 
 export const sendRenewalMail = (email, name, endDate) => {
@@ -113,5 +113,5 @@ export const sendAnniversaryMail = (email, name) => {
 };
 
 export const sendExpiryMail = (email, name, endDate, packageName, balance = 0) => {
-  return sendMail(email, "Subscription Expiry Reminder 🔔 - H4 Fitness Studio", templates.expiryReminder(name, endDate, packageName, balance));
+  return sendMail(email, "Subscription Expiry Reminder 🔔 - Elite Fitness", templates.expiryReminder(name, endDate, packageName, balance));
 };

@@ -10,7 +10,7 @@ import prisma from "./utils/db.js";
 const APP_CONFIG = {
   ADMIN: {
     username: "admin",
-    password: "one2life3421",
+    password: "admin123",
   },
 };
 
@@ -24,27 +24,30 @@ const run = async () => {
     await prisma.$connect();
     console.log("✅ PostgreSQL Connected via Prisma");
 
-    // 👤 Create admin if not exists
+    const hashedPassword = await bcrypt.hash(
+      APP_CONFIG.ADMIN.password,
+      10
+    );
+
+    // 👤 Create or update admin user
     const adminExists = await prisma.user.findUnique({
       where: { username: APP_CONFIG.ADMIN.username },
     });
 
     if (!adminExists) {
-      const hashedPassword = await bcrypt.hash(
-        APP_CONFIG.ADMIN.password,
-        10
-      );
-
       await prisma.user.create({
         data: {
           username: APP_CONFIG.ADMIN.username,
           password: hashedPassword,
         },
       });
-
-      console.log("✅ Admin user created");
+      console.log("✅ Admin user created with new password");
     } else {
-      console.log("ℹ️ Admin user already exists");
+      await prisma.user.update({
+        where: { username: APP_CONFIG.ADMIN.username },
+        data: { password: hashedPassword },
+      });
+      console.log("✅ Admin user password updated to admin123");
     }
 
     // ✅ Disconnect & exit

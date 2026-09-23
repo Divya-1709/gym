@@ -1,5 +1,6 @@
 import express from "express";
 import prisma from "../utils/db.js";
+import { sendNewClientWhatsApp } from "../utils/whatsapp.js";
 
 const router = express.Router();
 
@@ -23,6 +24,13 @@ router.post("/", async (req, res) => {
       data: clientData,
       include: { trainer: true },
     });
+
+    // Send WhatsApp greeting to the new client (non-blocking)
+    if (client.phone) {
+      sendNewClientWhatsApp(client.phone, client.name, client.clientId).catch(
+        (err) => console.error("❌ [WhatsApp Greeting] Failed:", err.message)
+      );
+    }
 
     res.status(201).json(client);
   } catch (err) {

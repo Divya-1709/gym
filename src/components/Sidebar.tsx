@@ -47,8 +47,8 @@ export default function Sidebar({ currentPage, onNavigate, onLogout }: SidebarPr
       <div className="p-4 border-b border-gray-200 flex items-center justify-center md:justify-start gap-3">
         <img 
           src={logo} 
-          alt="H4 Gym Logo" 
-          className="w-10 h-10 rounded-full object-cover" 
+          alt="Gym Logo" 
+          className="w-10 h-10 object-contain rounded-md" 
         />
         <h1 className="text-lg font-bold text-black tracking-wide hidden md:block">
           Gym Management
