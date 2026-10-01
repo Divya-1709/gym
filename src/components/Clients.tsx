@@ -195,6 +195,26 @@ useEffect(() => {
     });
   }
 
+  // ── Sort: Active + expired endDate → top (most overdue first) ──────────────
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  filtered.sort((a, b) => {
+    const aExpired = a.status?.toLowerCase() === "active" && a.endDate && new Date(a.endDate) < today;
+    const bExpired = b.status?.toLowerCase() === "active" && b.endDate && new Date(b.endDate) < today;
+
+    if (aExpired && !bExpired) return -1; // a goes first
+    if (!aExpired && bExpired) return 1;  // b goes first
+
+    // Both expired → sort by most overdue (earliest endDate first)
+    if (aExpired && bExpired) {
+      return new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
+    }
+
+    // Neither expired → keep original order (by memberId desc)
+    return Number(b.memberId) - Number(a.memberId);
+  });
+
   setFilteredClients(filtered);
 }, [filters, clients]);
 

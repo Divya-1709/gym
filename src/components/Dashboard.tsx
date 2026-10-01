@@ -265,11 +265,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
       setTotalAmountPaid(totalPaid);
       setTotalPendingBalance(totalBal);
 
-      // 4. Monthly Gym Collection (selected month/year)
+      // 4. Monthly Gym Collection
+      // If a date range is set → sum all bills within that range
+      // Otherwise → use selectedMonth/Year
+      const rangeFrom = fromDate ? new Date(fromDate) : null;
+      const rangeTo = toDate ? new Date(toDate) : null;
+      if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
+
       const monthlyGymBills = gymbills.filter((b) => {
         const dStr = b.joiningDate || b.createdAt;
         if (!dStr) return false;
         const d = new Date(dStr);
+        if (rangeFrom && rangeTo) {
+          return d >= rangeFrom && d <= rangeTo;
+        }
         return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
       });
       const gymMonthTotal = monthlyGymBills.reduce(
@@ -290,6 +299,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         const monthlyPTBills = ptSessions.filter((p) => {
           if (!p.createdAt) return false;
           const d = new Date(p.createdAt);
+          if (rangeFrom && rangeTo) {
+            return d >= rangeFrom && d <= rangeTo;
+          }
           return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
         });
         const ptMonthTotal = monthlyPTBills.reduce(
@@ -367,6 +379,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
     }
   };
 
+  // ── Sync selectedMonth/Year from the "From" date when date range changes ──
+  useEffect(() => {
+    if (fromDate) {
+      const d = new Date(fromDate);
+      setSelectedMonth(d.getMonth());
+      setSelectedYear(d.getFullYear());
+    } else {
+      // When date range is cleared, snap back to current month
+      setSelectedMonth(new Date().getMonth());
+      setSelectedYear(new Date().getFullYear());
+    }
+  }, [fromDate]);
+
   useEffect(() => {
     fetchStats();
   }, [fromDate, toDate, selectedMonth, selectedYear]);
@@ -377,9 +402,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
 
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+  const collectionLabel = fromDate && toDate
+    ? `${fromDate} → ${toDate}`
+    : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
+
   const stats: Stat[] = [
-    { key: "monthly_gym", label: `Monthly Gym Collection (${MONTH_NAMES[selectedMonth]} ${selectedYear})`, value: monthlyCollection, icon: IndianRupee, isCurrency: true, highlight: true },
-    { key: "monthly_pt", label: `Monthly PT Collection (${MONTH_NAMES[selectedMonth]} ${selectedYear})`, value: monthlyPTCollection, icon: Dumbbell, isCurrency: true, highlight: true },
+    { key: "monthly_gym", label: `Gym Collection (${collectionLabel})`, value: monthlyCollection, icon: IndianRupee, isCurrency: true, highlight: true },
+    { key: "monthly_pt", label: `PT Collection (${collectionLabel})`, value: monthlyPTCollection, icon: Dumbbell, isCurrency: true, highlight: true },
     { key: "total_revenue", label: "Total Revenue Collected", value: totalAmountPaid, icon: UserCheck, isCurrency: true },
     { key: "total_pending", label: "Total Pending Balance", value: totalPendingBalance, icon: UserX, isCurrency: true },
     { key: "total_expenses", label: "Total Expenses", value: totalExpenses, icon: Receipt, isCurrency: true },
