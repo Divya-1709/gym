@@ -19,16 +19,17 @@ router.get("/", async (req, res) => {
 // POST new PT session
 router.post("/", async (req, res) => {
   try {
-    const { clientId, trainerId, sessions, price } = req.body;
-    const pt = await prisma.personalTraining.create({
-      data: {
-        clientId,
-        trainerId,
-        sessions: parseInt(sessions || 1),
-        price: parseFloat(price || 0),
-      },
-      include: { client: true, trainer: true },
-    });
+    const { clientId, trainerId, sessions, price, clientName } = req.body;
+    const data = {
+      sessions: parseInt(sessions || 1),
+      price: parseFloat(price || 0),
+      clientName: clientName || null,
+    };
+    // Only connect clientId if it's a valid Client record (skip for GymBill-based PT)
+    if (clientId) data.clientId = clientId;
+    if (trainerId) data.trainerId = trainerId;
+
+    const pt = await prisma.personalTraining.create({ data });
     res.status(201).json(pt);
   } catch (err) {
     res.status(500).json({ error: err.message });

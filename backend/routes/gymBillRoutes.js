@@ -27,7 +27,7 @@ const ALLOWED_BILL_FIELDS = [
   "endDate", "sessions", "price", "discount", "discountAmount", "admissionCharges",
   "tax", "amountPayable", "amountPaid", "balance", "amount", "initialPaymentMode",
   "followupDate", "status", "paymentMethodDetail", "appointTrainer", "clientRep",
-  "profilePicture"
+  "profilePicture", "ptAmount", "ptTrainer"
 ];
 
 function sanitizeBillInput(body) {
@@ -36,7 +36,7 @@ function sanitizeBillInput(body) {
     if (body[field] !== undefined && body[field] !== null) {
       if (["sessions"].includes(field)) {
         sanitized[field] = Number(body[field]) || 0;
-      } else if (["price", "discountAmount", "admissionCharges", "tax", "amountPayable", "amountPaid", "balance", "amount"].includes(field)) {
+      } else if (["price", "discountAmount", "admissionCharges", "tax", "amountPayable", "amountPaid", "balance", "amount", "ptAmount"].includes(field)) {
         sanitized[field] = Number(body[field]) || 0;
       } else {
         sanitized[field] = String(body[field]);
@@ -117,6 +117,22 @@ router.post("/send-expiry-reminder/:id", async (req, res) => {
   }
 });
 
+// ----------------------------
+// 🔢 Get Next Member ID
+// ----------------------------
+router.get("/next-member-id", async (req, res) => {
+  try {
+    const counter = await prisma.counter.findUnique({
+      where: { name: "memberId" },
+    });
+    const nextId = (counter?.seq || 1092) + 1;
+    res.json({ nextMemberId: String(nextId) });
+  } catch (error) {
+    console.error("Error fetching next member id:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ---------------------
 // 🧾 Create New Gym Bill
 // ---------------------
@@ -125,12 +141,25 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
     if (!req.body || Object.keys(req.body).length === 0)
       return res.status(400).json({ message: "No data provided" });
 
-    const counter = await prisma.counter.upsert({
-      where: { name: "memberId" },
-      update: { seq: { increment: 1 } },
-      create: { name: "memberId", seq: 68 },
-    });
-    const memberId = String(counter.seq);
+    let memberId;
+    if (req.body.memberId && String(req.body.memberId).trim()) {
+      memberId = String(req.body.memberId).trim();
+      const num = parseInt(memberId, 10);
+      if (!isNaN(num)) {
+        await prisma.counter.upsert({
+          where: { name: "memberId" },
+          update: { seq: num },
+          create: { name: "memberId", seq: num },
+        });
+      }
+    } else {
+      const counter = await prisma.counter.upsert({
+        where: { name: "memberId" },
+        update: { seq: { increment: 1 } },
+        create: { name: "memberId", seq: 1092 },
+      });
+      memberId = String(counter.seq);
+    }
 
     let status = req.body.status?.trim();
     if (!status || !["Active", "Inactive"].includes(status)) {
@@ -163,6 +192,8 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
         amountPayable: Number(req.body.amountPayable) || 0,
         amountPaid: paidAmt,
         amount: Number(req.body.amount) || 0,
+        ptAmount: Number(req.body.ptAmount) || 0,
+        ptTrainer: req.body.ptTrainer || null,
         paymentHistory: initialHistory,
         renewalHistory: [],
       },
@@ -206,6 +237,8 @@ router.put("/renew/:id", async (req, res) => {
       remarks,
       trainer,
       paymentMethod,
+      ptAmount,
+      ptTrainer,
     } = req.body;
 
     const client = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
@@ -223,6 +256,8 @@ router.put("/renew/:id", async (req, res) => {
       remarks: client.remarks,
       trainer: client.appointTrainer,
       modeOfPayment: paymentMethod || client.initialPaymentMode,
+      ptAmount: client.ptAmount || 0,
+      ptTrainer: client.ptTrainer || null,
       date: new Date(),
     };
 
@@ -250,6 +285,8 @@ router.put("/renew/:id", async (req, res) => {
         remarks,
         appointTrainer: trainer,
         initialPaymentMode: paymentMethod || client.initialPaymentMode,
+        ptAmount: Number(ptAmount) || 0,
+        ptTrainer: ptTrainer || null,
         status: "Active",
       },
     });

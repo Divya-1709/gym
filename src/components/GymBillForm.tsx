@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { API_URI } from "../api/api";
+import {
+  formatWhatsAppPhone,
+  getDirectWhatsAppUrl,
+  getWhatsAppDesktopAppUrl,
+  getWhatsAppApiUrl,
+} from "../utils/whatsapp";
 
 interface Trainer {
-  _id: string;
+  id?: string;
+  _id?: string;
   name: string;
 }
 
@@ -20,6 +27,20 @@ const GymBillForm: React.FC = () => {
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [error, setError] = useState<string>("");
+  const [ptAmount, setPtAmount] = useState("");
+  const [ptTrainer, setPtTrainer] = useState("");
+  const [greetingModal, setGreetingModal] = useState<{
+    client: string;
+    phone: string;
+    memberId: string;
+    waWebLink: string;
+    waApiLink: string;
+    desktopAppLink: string;
+    message: string;
+    ptText?: string;
+  } | null>(null);
+
+  const isPTPackage = (pkg: string) => /pt|personal.?training/i.test(pkg);
 
   const [formData, setFormData] = useState({
     invoiceId: "",
@@ -94,6 +115,22 @@ const GymBillForm: React.FC = () => {
       .catch((err) => console.error("Error fetching packages:", err));
   }, []);
 
+  // Fetch next member ID from backend counter
+  const fetchNextMemberId = () => {
+    axios
+      .get(`${API_URI}/gymbill/next-member-id`)
+      .then((res) => {
+        if (res.data?.nextMemberId) {
+          setFormData((prev) => ({ ...prev, memberId: res.data.nextMemberId }));
+        }
+      })
+      .catch((err) => console.error("Error fetching next member id:", err));
+  };
+
+  useEffect(() => {
+    fetchNextMemberId();
+  }, []);
+
   // Auto calculation for amounts and balance
  useEffect(() => {
   const price = Number(formData.price) || 0;
@@ -157,21 +194,107 @@ const GymBillForm: React.FC = () => {
       return;
     }
 
+    // Open a blank window synchronously on user click to bypass browser popup blockers
+    let waTab: Window | null = null;
     try {
+      waTab = window.open("about:blank", "_blank");
+    } catch (e) {
+      console.log("Upfront window open restricted");
+    }
+
+    try {
+      const isPT = isPTPackage(formData.package);
+      const effectivePtAmount = Number(ptAmount) > 0
+        ? Number(ptAmount)
+        : (/^(personal\s*training|pt)$/i.test(formData.package.trim())
+            ? Number(formData.amountPaid || formData.price || 0)
+            : 0);
+
       const res = await axios.post(
         `${API_URI}/gymbill`,
-        formData,
+        {
+          ...formData,
+          ptAmount: effectivePtAmount,
+          ptTrainer: ptTrainer || null,
+        },
         { headers: { "Content-Type": "application/json" } }
       );
 
-      alert("Gym Bill saved successfully!");
-
-      if (res.data?.whatsappLink && !res.data?.whatsappApiSent) {
-        const confirmSend = window.confirm("Do you want to send the Welcome Greeting on WhatsApp now?");
-        if (confirmSend) {
-          window.open(res.data.whatsappLink, "_blank");
+      // Auto-create PT session record if PT package selected
+      if (isPT && effectivePtAmount > 0) {
+        try {
+          await axios.post(`${API_URI}/pts`, {
+            clientName: formData.client,
+            trainerId: ptTrainer || undefined,
+            sessions: Number(formData.sessions) || 1,
+            price: effectivePtAmount,
+          });
+        } catch (ptErr) {
+          console.warn("⚠️ PT session record creation failed:", ptErr);
         }
       }
+
+      // Format WhatsApp greeting message mentioning PT and payment details
+      const phone = formatWhatsAppPhone(formData.contactNumber);
+      const memberId = res.data?.memberId || "";
+      const ptText = effectivePtAmount > 0
+        ? `\n🏋️ *Personal Training Amount:* ₹${effectivePtAmount.toLocaleString("en-IN")}`
+        : "";
+      const balanceText = Number(formData.balance) > 0
+        ? `\n💳 *Pending Balance:* ₹${Number(formData.balance).toLocaleString("en-IN")}`
+        : "";
+
+      const greetingMsg =
+        `✅ *Welcome to Elite Fitness!* 💪🏋️‍♂️\n\n` +
+        `Hi *${formData.client}* (Member ID: *${memberId || "N/A"}*),\n\n` +
+        `Your membership has been created successfully!\n\n` +
+        `📦 *Package:* ${formData.package || "Membership"}\n` +
+        `📅 *Valid From:* ${formData.joiningDate}\n` +
+        `📅 *Valid Till:* ${formData.endDate}\n` +
+        `💰 *Amount Paid:* ₹${Number(formData.amountPaid || 0).toLocaleString("en-IN")}${ptText}${balanceText}\n\n` +
+        `We're excited to have you on board. Stay fit & crush your goals! 🔥\n` +
+        `— *Elite Fitness*`;
+
+      const waWebLink = getDirectWhatsAppUrl(formData.contactNumber, greetingMsg);
+      const waApiLink = getWhatsAppApiUrl(formData.contactNumber, greetingMsg);
+      const desktopAppLink = getWhatsAppDesktopAppUrl(formData.contactNumber, greetingMsg);
+
+      // Redirect the upfront window if available
+      if (waTab && !waTab.closed) {
+        try {
+          waTab.location.href = waWebLink;
+        } catch (navErr) {
+          console.log("Could not update location on upfront window:", navErr);
+        }
+      } else {
+        // Fallback: try anchor click or direct window.open
+        try {
+          const a = document.createElement("a");
+          a.href = waWebLink;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (err) {
+          window.open(waWebLink, "_blank");
+        }
+      }
+
+      // Open Success & WhatsApp Greeting Modal
+      setGreetingModal({
+        client: formData.client,
+        phone,
+        memberId,
+        waWebLink,
+        waApiLink,
+        desktopAppLink,
+        message: greetingMsg,
+        ptText: effectivePtAmount > 0 ? `PT Share: ₹${effectivePtAmount}` : undefined,
+      });
+
+      setPtAmount("");
+      setPtTrainer("");
 
       // Reset form (keep invoiceDate and joiningDate to today)
       setFormData({
@@ -213,7 +336,13 @@ const GymBillForm: React.FC = () => {
         clientRep: "",
         initialPaymentMode: "",
       });
+      setPtAmount("");
+      setPtTrainer("");
+      fetchNextMemberId();
     } catch (err: any) {
+      if (waTab && !waTab.closed) {
+        waTab.close();
+      }
       console.error("Error submitting form:", err);
       if (err.response?.data?.message) {
         setError(err.response.data.message);
@@ -223,26 +352,126 @@ const GymBillForm: React.FC = () => {
     }
   };
 
- return (
-  <div className="p-3 sm:p-4 md:p-6 bg-[#f4f7fb] min-h-screen">
-    
-    <h2 className="bg-yellow-300 text-white text-xs sm:text-sm font-semibold p-2 rounded">
-      Create New Bill for Gym Membership
-    </h2>
+  return (
+    <div className="p-3 sm:p-4 md:p-6 bg-[#f4f7fb] min-h-screen">
+      <h2 className="bg-yellow-300 text-white text-xs sm:text-sm font-semibold p-2 rounded">
+        Create New Bill for Gym Membership
+      </h2>
 
-    <form
-      onSubmit={handleSubmit}
-      className="bg-white mt-4 p-4 sm:p-6 rounded-lg shadow-md text-xs sm:text-sm space-y-6"
-    >
+      {/* 🎉 WhatsApp Greeting Overlay Modal */}
+      {greetingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-yellow-200 overflow-hidden transform transition-all">
+            <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-4 text-white">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                🎉 Client Saved Successfully!
+              </h3>
+              <p className="text-xs text-yellow-100 mt-0.5">
+                Member ID: #{greetingModal.memberId} • {greetingModal.client} {greetingModal.ptText ? `(${greetingModal.ptText})` : ""}
+              </p>
+            </div>
 
-      
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Greeting Message Preview:
+                </p>
+                <div className="bg-yellow-50/70 p-3 rounded-xl border border-yellow-200 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                  {greetingModal.message}
+                </div>
+              </div>
 
-      {/* Row 2 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <input name="client" value={formData.client} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Client*" />
-        <input name="contactNumber" value={formData.contactNumber} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Contact Number*" />
-        <input name="alternateContact" value={formData.alternateContact} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Alternate Contact" />
-      </div>
+              <div className="space-y-2.5 pt-2">
+                <a
+                  href={greetingModal.waWebLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md text-sm cursor-pointer"
+                >
+                  <span>💬 Open WhatsApp Web Chat</span>
+                </a>
+
+                <a
+                  href={greetingModal.waApiLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs cursor-pointer"
+                >
+                  <span>📱 Open Direct WhatsApp (wa.me / Web / Mobile)</span>
+                </a>
+
+                <a
+                  href={greetingModal.desktopAppLink}
+                  className="w-full bg-green-700 hover:bg-green-800 active:scale-98 text-white font-medium py-2 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs cursor-pointer"
+                >
+                  <span>💻 Open in WhatsApp Desktop App</span>
+                </a>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 px-5 py-3 flex justify-end border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setGreetingModal(null)}
+                className="text-xs font-semibold text-gray-500 hover:text-gray-800 px-4 py-2 rounded-lg cursor-pointer"
+              >
+                Done / Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white mt-4 p-4 sm:p-6 rounded-lg shadow-md text-xs sm:text-sm space-y-6"
+      >
+        {/* Row 1: Member ID & Invoice Details */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 bg-yellow-50/50 p-3.5 rounded-xl border border-yellow-200">
+          <div>
+            <label className="block text-xs font-semibold text-yellow-800 mb-1">
+              🆔 Member ID (Auto-assigned)
+            </label>
+            <input
+              name="memberId"
+              value={formData.memberId}
+              onChange={handleChange}
+              className="border p-2 w-full rounded bg-white font-mono font-bold text-yellow-900 border-yellow-300"
+              placeholder="e.g. 1093"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-yellow-800 mb-1">
+              📅 Invoice Date
+            </label>
+            <input
+              type="date"
+              name="invoiceDate"
+              value={formData.invoiceDate}
+              onChange={handleChange}
+              className="border p-2 w-full rounded bg-white border-yellow-200"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-yellow-800 mb-1">
+              📄 Invoice ID (Optional)
+            </label>
+            <input
+              name="invoiceId"
+              value={formData.invoiceId}
+              onChange={handleChange}
+              className="border p-2 w-full rounded bg-white border-yellow-200"
+              placeholder="Enter Invoice ID"
+            />
+          </div>
+        </div>
+
+        {/* Row 2 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <input name="client" value={formData.client} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Client*" />
+          <input name="contactNumber" value={formData.contactNumber} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Contact Number*" />
+          <input name="alternateContact" value={formData.alternateContact} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Alternate Contact" />
+        </div>
 
       {/* Row 3 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -334,6 +563,7 @@ const GymBillForm: React.FC = () => {
           className="border p-2 w-full rounded"
         >
           <option value="">Select Package</option>
+            <option value="Personal Training">🏋️ Personal Training</option>
           {packages.map((pkg) => (
             <option key={pkg.id} value={pkg.name}>
               {pkg.name}
@@ -396,7 +626,7 @@ const GymBillForm: React.FC = () => {
         <select name="appointTrainer" value={formData.appointTrainer} onChange={handleChange} className="border p-2 w-full rounded">
           <option value="">Trainer</option>
           {trainers.map((t) => (
-            <option key={t._id} value={t.name}>{t.name}</option>
+            <option key={t.id || t._id} value={t.name}>{t.name}</option>
           ))}
         </select>
 
@@ -409,6 +639,35 @@ const GymBillForm: React.FC = () => {
 
         <input name="clientRep" value={formData.clientRep} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Client Rep" />
       </div>
+
+      {/* 🏋️ PT Fields — shown only when PT package selected */}
+      {isPTPackage(formData.package) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border border-yellow-300 bg-yellow-50 p-3 rounded-lg">
+          <div>
+            <label className="block text-xs font-semibold text-yellow-700 mb-1">🏋️ PT Amount (₹)</label>
+            <input
+              type="number"
+              placeholder="Enter PT amount"
+              value={ptAmount}
+              onChange={(e) => setPtAmount(e.target.value)}
+              className="border p-2 w-full rounded border-yellow-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-yellow-700 mb-1">PT Trainer</label>
+            <select
+              value={ptTrainer}
+              onChange={(e) => setPtTrainer(e.target.value)}
+              className="border p-2 w-full rounded border-yellow-400"
+            >
+              <option value="">Select PT Trainer</option>
+              {trainers.map((t) => (
+                <option key={t.id || t._id} value={t.id || t._id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 

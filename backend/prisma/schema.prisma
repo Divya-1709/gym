@@ -113,15 +113,16 @@ model GroupClass {
 }
 
 model PersonalTraining {
-  id        String   @id @default(uuid())
-  clientId  String
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  trainerId String?
-  trainer   Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
-  sessions  Int
-  price     Float
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  clientId   String?
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId  String?
+  trainer    Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  clientName String?
+  sessions   Int
+  price      Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Subscription {
@@ -188,6 +189,8 @@ model GymBill {
   renewalHistory      Json?
   balanceHistory      Json?
   profilePicture      String?
+  ptAmount            Float?   @default(0)
+  ptTrainer           String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

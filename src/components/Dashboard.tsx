@@ -31,11 +31,13 @@ import {
 
 export interface GymBill {
   _id: string;
+  id?: string;
   memberId?: string;
   client?: string;
   contactNumber?: string;
   status?: string;
   createdAt?: string;
+  price?: number;
   amountPaid?: number;
   balance?: number;
   totalPaidIncludingRenewals?: number;
@@ -44,6 +46,8 @@ export interface GymBill {
   package?: string;
   joiningDate?: string;
   endDate?: string;
+  ptAmount?: number;
+  ptTrainer?: string;
 }
 
 interface DashboardProps {
@@ -213,6 +217,51 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
 
   const [monthlyGraph, setMonthlyGraph] = useState<any[]>([]);
 
+  // 3. Financial Totals Helpers
+  const getClientPaid = (b: GymBill) => {
+    if (typeof b.totalPaidIncludingRenewals === "number" && b.totalPaidIncludingRenewals > 0) {
+      return b.totalPaidIncludingRenewals;
+    }
+    if (typeof b.amountPaid === "number" && b.amountPaid > 0) {
+      return b.amountPaid;
+    }
+    if (typeof b.price === "number" && b.price > 0) {
+      const bal = typeof b.balance === "number" ? b.balance : 0;
+      return Math.max(0, b.price - bal);
+    }
+    return 0;
+  };
+
+  // Separates pure Gym collection from PT share
+  const getClientGymPaid = (b: GymBill) => {
+    const total = getClientPaid(b);
+    const pkg = (b.package || "").trim();
+
+    // If package is purely Personal Training, Gym gets 0
+    if (/^(personal\s*training|pt)$/i.test(pkg)) {
+      return 0;
+    }
+
+    // If explicit ptAmount is specified
+    const pt = Number(b.ptAmount) || 0;
+    if (pt > 0) {
+      return Math.max(0, total - pt);
+    }
+
+    // If combo package like "Monthly + PT", gym fee is capped at package/gym price
+    if (/pt|personal.?training/i.test(pkg) && typeof b.price === "number" && b.price > 0 && total > b.price) {
+      return b.price;
+    }
+
+    return total;
+  };
+
+  const getClientPTShare = (b: GymBill) => {
+    const total = getClientPaid(b);
+    const gym = getClientGymPaid(b);
+    return Math.max(0, total - gym);
+  };
+
   const fetchStats = async () => {
     try {
       setLoading(true);
@@ -245,27 +294,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
       }).length;
       setNewClients(newClientsCount);
 
-      // 3. Financial Totals (Paid & Balance)
-      const getClientPaid = (b: GymBill) => {
-        if (typeof b.totalPaidIncludingRenewals === "number" && b.totalPaidIncludingRenewals > 0) {
-          return b.totalPaidIncludingRenewals;
-        }
-        if (typeof b.amountPaid === "number" && b.amountPaid > 0) {
-          return b.amountPaid;
-        }
-        if (typeof b.price === "number" && b.price > 0) {
-          const bal = typeof b.balance === "number" ? b.balance : 0;
-          return Math.max(0, b.price - bal);
-        }
-        return 0;
-      };
-
       setTotalAmountPaid(0);
       setTotalPendingBalance(0);
 
-      // 4. Monthly Gym Collection
-      // If a date range is set → sum all bills within that range
-      // Otherwise → use selectedMonth/Year
+      // 4. Monthly Gym Collection (pure Gym fee, excluding PT share)
       const rangeFrom = fromDate ? new Date(fromDate) : null;
       const rangeTo = toDate ? new Date(toDate) : null;
       if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
@@ -280,7 +312,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
       });
       const gymMonthTotal = monthlyGymBills.reduce(
-        (sum, b) => sum + getClientPaid(b),
+        (sum, b) => sum + getClientGymPaid(b),
         0
       );
       setMonthlyCollection(gymMonthTotal);
@@ -292,6 +324,25 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
           axios.get<PTSession[]>(`${API_URI}/personaltrainings`).catch(() => ({ data: [] }))
         );
         ptSessions = Array.isArray(ptRes?.data) ? ptRes.data : [];
+
+        // Also merge any GymBills with PT share not yet in ptSessions (ensures PT is never missed)
+        const existingPtNames = new Set(
+          ptSessions.map((p) => (p.clientName || "").toLowerCase().trim()).filter(Boolean)
+        );
+        gymbills.forEach((b) => {
+          const ptShare = getClientPTShare(b);
+          const cName = (b.client || "").toLowerCase().trim();
+          if (ptShare > 0 && cName && !existingPtNames.has(cName)) {
+            ptSessions.push({
+              id: b.id || b._id,
+              clientName: b.client,
+              price: ptShare,
+              createdAt: b.joiningDate || b.createdAt,
+            });
+            existingPtNames.add(cName);
+          }
+        });
+
         setRawPTSessions(ptSessions);
 
         const monthlyPTBills = ptSessions.filter((p) => {
@@ -327,7 +378,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         });
         return {
           month: MONTHS[m],
-          revenue: gymRows.reduce((sum, b) => sum + getClientPaid(b), 0),
+          revenue: gymRows.reduce((sum, b) => sum + getClientGymPaid(b), 0),
           ptRevenue: ptRows.reduce((sum, p) => sum + (p.price || 0), 0),
         };
       });
@@ -1040,7 +1091,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
                                 {item.status || "N/A"}
                               </span>
                             </td>
-                            <td className="px-4 py-3 font-semibold text-yellow-800">₹{(item.totalPaidIncludingRenewals || item.amountPaid || 0).toLocaleString("en-IN")}</td>
+                            <td className="px-4 py-3 font-semibold text-yellow-800">
+                              {activeStatKey === "monthly_gym" ? (
+                                <div>
+                                  <span>₹{getClientGymPaid(item).toLocaleString("en-IN")}</span>
+                                  {getClientPTShare(item) > 0 && (
+                                    <span className="block text-[10px] text-amber-700 font-medium">
+                                      PT Share: ₹{getClientPTShare(item).toLocaleString("en-IN")}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                `₹${(item.totalPaidIncludingRenewals || item.amountPaid || 0).toLocaleString("en-IN")}`
+                              )}
+                            </td>
                             <td className="px-4 py-3 font-semibold text-red-600">₹{(item.balance || 0).toLocaleString("en-IN")}</td>
                             <td className="px-4 py-3 text-gray-600">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "N/A"}</td>
                           </>

@@ -70,7 +70,8 @@ interface GymBill {
 }
 
 interface Trainer {
-  _id: string;
+  id?: string;
+  _id?: string;
   name: string;
 }
 
@@ -377,7 +378,7 @@ const fetchPackages = async () => {
       if (isPTPackage(renewData.package) && Number(renewData.ptAmount) > 0) {
         try {
           await axios.post(`${API_URI}/pts`, {
-            clientId: id,
+            clientName: updatedClient.client || clientObj?.client || "",
             trainerId: renewData.ptTrainer || undefined,
             sessions: 1,
             price: Number(renewData.ptAmount),
@@ -954,7 +955,7 @@ const sendWhatsAppReminder = async (client: GymBill) => {
               >
                 <option value="">Select PT Trainer</option>
                 {_trainers.map((t) => (
-                  <option key={t._id} value={t._id}>
+                  <option key={t.id || t._id} value={t.id || t._id}>
                     {t.name}
                   </option>
                 ))}

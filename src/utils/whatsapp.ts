@@ -50,6 +50,16 @@ export const getWhatsAppDesktopAppUrl = (phone?: string, message?: string): stri
 };
 
 /**
+ * Universal api.whatsapp.com URL (compatible with both desktop app & web fallback)
+ */
+export const getWhatsAppApiUrl = (phone?: string, message?: string): string => {
+  const formattedPhone = formatWhatsAppPhone(phone);
+  if (!formattedPhone) return "";
+  const encodedText = message ? encodeURIComponent(message) : "";
+  return `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedText}`;
+};
+
+/**
  * Opens WhatsApp directly in client's chat
  */
 export const openDirectWhatsApp = (phone?: string, message?: string): Window | null => {
@@ -57,4 +67,5 @@ export const openDirectWhatsApp = (phone?: string, message?: string): Window | n
   if (!url) return null;
   return window.open(url, "_blank");
 };
+
 
