@@ -260,10 +260,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         return 0;
       };
 
-      const totalPaid = gymbills.reduce((sum, b) => sum + getClientPaid(b), 0);
-      const totalBal = gymbills.reduce((sum, b) => sum + (b.balance || 0), 0);
-      setTotalAmountPaid(totalPaid);
-      setTotalPendingBalance(totalBal);
+      setTotalAmountPaid(0);
+      setTotalPendingBalance(0);
 
       // 4. Monthly Gym Collection
       // If a date range is set → sum all bills within that range
