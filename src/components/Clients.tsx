@@ -1199,7 +1199,7 @@ const sendWhatsAppReminder = async (client: GymBill) => {
                 </tr>
               </thead>
               <tbody>
-                {selectedClient.renewalHistory.map((r) => (
+                {[...selectedClient.renewalHistory].reverse().map((r) => (
                   <tr key={r._id}>
                     <td className="p-2 border">{r.date?.split("T")[0]}</td>
                     <td className="p-2 border">{r.joiningDate}</td>

@@ -196,9 +196,15 @@ const ClientEdit: React.FC = () => {
     }
   };
 
-  const filteredClients = clients.filter((c) =>
-    c.client.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredClients = clients.filter((c) => {
+    const term = search.toLowerCase().trim();
+    return (
+      c.client?.toLowerCase().includes(term) ||
+      c.memberId?.toString().toLowerCase().includes(term) ||
+      c.contactNumber?.includes(term) ||
+      c.alternateContact?.includes(term)
+    );
+  });
 
   return (
     <div className="p-4 text-sm">
@@ -210,8 +216,8 @@ const ClientEdit: React.FC = () => {
       <div className="flex mb-4">
         <input
           type="text"
-          placeholder="Search client by name..."
-          className="border px-3 py-2 rounded-md w-72"
+          placeholder="Search by name, Member ID, or phone..."
+          className="border px-3 py-2 rounded-md w-80"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
