@@ -233,9 +233,11 @@ const [renewData, setRenewData] = useState({
   amountPaid: "",
   balance: "",
   remarks: "",
-  admissionCharges: "", 
+  admissionCharges: "",
   trainer: "",
   paymentMethod: "",
+  ptAmount: "",
+  ptTrainer: "",
 });
   const [showRenewForm, setShowRenewForm] = useState<string | null>(
     initialTarget?.openRenewModal && initialTarget?.clientId
@@ -289,6 +291,9 @@ const fetchPackages = async () => {
     waLink: string;
   } | null>(null);
 
+  const isPTPackage = (packageName: string) =>
+    /pt|personal.?training/i.test(packageName);
+
   const handleRenew = async (id: string, clientObj?: GymBill) => {
     try {
       const res = await axios.put(`${API_URI}/gymbill/renew/${id}`, renewData);
@@ -321,6 +326,9 @@ const fetchPackages = async () => {
       // 3️⃣ Open WhatsApp directly with the renewal success message & attached format
       const formattedPhone = formatWhatsAppPhone(updatedClient.contactNumber);
       const balanceText = Number(updatedClient.balance) > 0 ? `\n💳 *Pending Balance:* ₹${updatedClient.balance}` : "";
+      const ptText = isPTPackage(renewData.package) && Number(renewData.ptAmount) > 0
+        ? `\n🏋️ *Personal Training Amount:* ₹${renewData.ptAmount}`
+        : "";
 
       const message = `✅ *Membership Renewal Successful!* 🎉\n\n` +
         `Hi *${updatedClient.client}* (Member ID: *${updatedClient.memberId || "N/A"}*),\n\n` +
@@ -328,7 +336,7 @@ const fetchPackages = async () => {
         `📦 *Package:* ${updatedClient.package || "Membership Package"}\n` +
         `📅 *Valid From:* ${updatedClient.joiningDate}\n` +
         `📅 *Valid Till:* ${updatedClient.endDate}\n` +
-        `💰 *Amount Paid:* ₹${updatedClient.amountPaid}${balanceText}\n\n` +
+        `💰 *Amount Paid:* ₹${updatedClient.amountPaid}${ptText}${balanceText}\n\n` +
         `📎 Please find your invoice attached to this message.\n\n` +
         `Thank you for renewing your journey with *Elite Fitness*! Stay fit & strong! 💪🏋️‍♂️\n` +
         `— *Elite Fitness*`;
@@ -363,6 +371,20 @@ const fetchPackages = async () => {
           message,
           waLink,
         });
+      }
+
+      // 6️⃣ Auto-create PT session record if PT package selected
+      if (isPTPackage(renewData.package) && Number(renewData.ptAmount) > 0) {
+        try {
+          await axios.post(`${API_URI}/pts`, {
+            clientId: id,
+            trainerId: renewData.ptTrainer || undefined,
+            sessions: 1,
+            price: Number(renewData.ptAmount),
+          });
+        } catch (ptErr) {
+          console.warn("⚠️ PT session record creation failed:", ptErr);
+        }
       }
 
       setShowRenewForm(null);
@@ -795,6 +817,7 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             }}
           >
             <option value="">Select Package</option>
+            <option value="Personal Training">🏋️ Personal Training</option>
             {packages.map((p) => (
               <option key={p.id} value={p.name}>
                 {p.name}
@@ -887,7 +910,7 @@ const sendWhatsAppReminder = async (client: GymBill) => {
           />
         </div>
 
-        {/* ⭐ PAYMENT METHOD (NEW FIELD) */}
+        {/* ⭐ PAYMENT METHOD */}
         <div>
           <label className="text-xs text-gray-600">Payment Method</label>
           <select
@@ -904,6 +927,41 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             <option value="Bank Transfer">Bank Transfer</option>
           </select>
         </div>
+
+        {/* 🏋️ PT Fields — shown only when package includes PT */}
+        {isPTPackage(renewData.package) && (
+          <>
+            <div>
+              <label className="text-xs text-gray-600 font-semibold text-yellow-700">PT Amount (₹)</label>
+              <input
+                type="number"
+                placeholder="Enter PT amount"
+                value={renewData.ptAmount}
+                onChange={(e) =>
+                  setRenewData({ ...renewData, ptAmount: e.target.value })
+                }
+                className="w-full border p-2 rounded border-yellow-400 focus:ring-yellow-400"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 font-semibold text-yellow-700">PT Trainer</label>
+              <select
+                className="w-full border p-2 rounded border-yellow-400"
+                value={renewData.ptTrainer}
+                onChange={(e) =>
+                  setRenewData({ ...renewData, ptTrainer: e.target.value })
+                }
+              >
+                <option value="">Select PT Trainer</option>
+                {_trainers.map((t) => (
+                  <option key={t._id} value={t._id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
 
         {/* Remarks */}
         <div className="col-span-2">

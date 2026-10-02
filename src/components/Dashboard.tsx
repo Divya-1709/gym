@@ -434,21 +434,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     switch (stat.key) {
-      case "monthly_gym":
+      case "monthly_gym": {
+        const rangeFrom = fromDate ? new Date(fromDate) : null;
+        const rangeTo = toDate ? new Date(toDate) : null;
+        if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
         items = rawGymBills.filter((b) => {
           const dStr = b.joiningDate || b.createdAt;
           if (!dStr) return false;
           const d = new Date(dStr);
+          if (rangeFrom && rangeTo) return d >= rangeFrom && d <= rangeTo;
           return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
         });
         break;
-      case "monthly_pt":
+      }
+      case "monthly_pt": {
+        const rangeFrom = fromDate ? new Date(fromDate) : null;
+        const rangeTo = toDate ? new Date(toDate) : null;
+        if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
         items = rawPTSessions.filter((p) => {
           if (!p.createdAt) return false;
           const d = new Date(p.createdAt);
+          if (rangeFrom && rangeTo) return d >= rangeFrom && d <= rangeTo;
           return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
         });
         break;
+      }
       case "total_revenue":
         items = rawGymBills.filter((b) => (b.totalPaidIncludingRenewals || b.amountPaid || 0) > 0);
         break;
