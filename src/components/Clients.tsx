@@ -925,7 +925,8 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             <option value="Cash">Cash</option>
             <option value="Card">Card</option>
             <option value="UPI">UPI</option>
-            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="GPay">GPay</option>
+            <option value="Paytm">Paytm</option>
           </select>
         </div>
 
