@@ -52,6 +52,8 @@ interface GymBill {
   status: string;
 
   paymentHistory?: {
+    _id?: string;
+    id?: string;
     amount: number;
     mode: string;
     note?: string;
@@ -114,37 +116,62 @@ const [filters, setFilters] = useState({
   month: "", // ✅ added
 });
 const openRenewalEditModal = (renew: any, clientId: string) => {
-  setEditRenewData({ ...renew });
-  setEditRenewId(renew._id);
+  const renewId = renew._id || renew.id;
+  setEditRenewData({
+    ...renew,
+    _id: renewId,
+    id: renewId,
+    joiningDate: renew.joiningDate ? renew.joiningDate.split("T")[0] : "",
+    endDate: renew.endDate ? renew.endDate.split("T")[0] : "",
+    date: renew.date ? renew.date.split("T")[0] : "",
+    price: renew.price ?? "",
+    discountAmount: renew.discountAmount ?? "",
+    amountPaid: renew.amountPaid ?? "",
+    balance: renew.balance ?? "",
+    remarks: renew.remarks ?? "",
+    package: renew.package ?? "",
+  });
+  setEditRenewId(renewId);
   setEditClientId(clientId);
 };
+
 const handleEditRenewSave = async () => {
-  if (!editClientId || !editRenewId) return;
+  if (!editClientId || !editRenewId) {
+    alert("Missing renewal or client ID");
+    return;
+  }
 
   try {
     await axios.put(
-  `${API_URI}/gymbill/renew/edit/${editClientId}/${editRenewId}`,
-  editRenewData
-);
+      `${API_URI}/gymbill/renew/edit/${editClientId}/${editRenewId}`,
+      editRenewData
+    );
 
-alert("Renewal updated successfully");
+    alert("Renewal updated successfully");
 
-// Close popup
-setEditRenewId(null);
+    // Close popup
+    setEditRenewId(null);
+    setEditRenewData(null);
 
-// Refresh full list
-fetchClients();
+    // Refresh full list
+    fetchClients();
 
-// 🔥 Refresh the currently opened client in View modal
-if (selectedClient && selectedClient._id === editClientId) {
-  refreshSelectedClient(editClientId);
-}
-
-  } catch (err) {
+    // 🔥 Refresh the currently opened client in View modal
+    if (selectedClient && (selectedClient._id === editClientId || (selectedClient as any).id === editClientId)) {
+      refreshSelectedClient(editClientId);
+    }
+  } catch (err: any) {
     console.error("❌ Renewal update failed:", err);
+    alert("Renewal update failed: " + (err.response?.data?.message || err.message));
   }
 };
+
 const handleDeleteRenew = async (renewId: string, clientId: string) => {
+  if (!renewId || !clientId) {
+    alert("Missing renewal entry ID or client ID");
+    return;
+  }
+
   if (!window.confirm("Are you sure you want to delete this renewal?")) return;
 
   try {
@@ -154,9 +181,81 @@ const handleDeleteRenew = async (renewId: string, clientId: string) => {
 
     alert("Renewal entry deleted");
     fetchClients(); // Refresh data
-  } catch (err) {
+
+    // 🔥 Refresh the currently opened client in View modal
+    if (selectedClient && (selectedClient._id === clientId || (selectedClient as any).id === clientId)) {
+      refreshSelectedClient(clientId);
+    }
+  } catch (err: any) {
     console.error("Delete failed", err);
-    alert("Failed to delete");
+    alert("Failed to delete renewal: " + (err.response?.data?.message || err.message));
+  }
+};
+
+const [editPaymentData, setEditPaymentData] = useState<any>(null);
+const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
+const [editPaymentClientId, setEditPaymentClientId] = useState<string | null>(null);
+
+const openPaymentEditModal = (payment: any, pId: string, clientId: string) => {
+  setEditPaymentData({
+    ...payment,
+    _id: pId,
+    id: pId,
+    date: payment.date ? payment.date.split("T")[0] : "",
+    amount: payment.amount ?? "",
+    mode: payment.mode ?? "Cash",
+    note: payment.note ?? "",
+  });
+  setEditPaymentId(pId);
+  setEditPaymentClientId(clientId);
+};
+
+const handleEditPaymentSave = async () => {
+  if (!editPaymentClientId || !editPaymentId) {
+    alert("Missing payment entry ID or client ID");
+    return;
+  }
+
+  try {
+    await axios.put(
+      `${API_URI}/gymbill/payment/edit/${editPaymentClientId}/${editPaymentId}`,
+      editPaymentData
+    );
+
+    alert("Payment entry updated successfully");
+    setEditPaymentId(null);
+    setEditPaymentData(null);
+    fetchClients();
+    if (selectedClient && (selectedClient._id === editPaymentClientId || (selectedClient as any).id === editPaymentClientId)) {
+      refreshSelectedClient(editPaymentClientId);
+    }
+  } catch (err: any) {
+    console.error("❌ Payment update failed:", err);
+    alert("Payment update failed: " + (err.response?.data?.message || err.message));
+  }
+};
+
+const handleDeletePayment = async (pId: string, clientId: string) => {
+  if (!pId || !clientId) {
+    alert("Missing payment entry ID or client ID");
+    return;
+  }
+
+  if (!window.confirm("Are you sure you want to delete this payment entry?")) return;
+
+  try {
+    await axios.delete(
+      `${API_URI}/gymbill/payment/delete/${clientId}/${pId}`
+    );
+
+    alert("Payment entry deleted");
+    fetchClients();
+    if (selectedClient && (selectedClient._id === clientId || (selectedClient as any).id === clientId)) {
+      refreshSelectedClient(clientId);
+    }
+  } catch (err: any) {
+    console.error("Payment delete failed:", err);
+    alert("Failed to delete payment: " + (err.response?.data?.message || err.message));
   }
 };
 
@@ -175,7 +274,7 @@ useEffect(() => {
     );
   }
   if (filters.package) filtered = filtered.filter((c) => c.package === filters.package);
-  if (filters.status) filtered = filtered.filter((c) => c.status === filters.status);
+  if (filters.status) filtered = filtered.filter((c) => (c.status || "").toLowerCase() === filters.status.toLowerCase());
   if (filters.trainer)
   filtered = filtered.filter((c) => c.appointTrainer === filters.trainer);
   if (filters.endDate)
@@ -561,7 +660,7 @@ const sendWhatsAppReminder = async (client: GymBill) => {
     >
       <option value="">All Status</option>
       <option value="Active">Active</option>
-      <option value="Expired">InActive</option>
+      <option value="Inactive">InActive</option>
     </select>
   </div>
 
@@ -662,21 +761,36 @@ const sendWhatsAppReminder = async (client: GymBill) => {
   {filteredClients.length > 0 ? (
   filteredClients.map((client) => {
 
-      const today = new Date();
-      const end = new Date(client.endDate);
-      const diffDays = Math.ceil(
-        (end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-      );
+      let effectiveEndDate = client.endDate?.trim();
+      if (!effectiveEndDate && Array.isArray(client.renewalHistory) && client.renewalHistory.length > 0) {
+        const latest = [...client.renewalHistory].reverse().find((r) => r.endDate?.trim());
+        if (latest) effectiveEndDate = latest.endDate.trim();
+      }
 
-      let statusText = "Valid";
-      let statusColor = "text-green-600 font-semibold";
+      let statusText = "Inactive";
+      let statusColor = "text-red-600 font-semibold";
 
-      if (diffDays <= 0) {
-        statusText = "Expired";
-        statusColor = "text-red-600 font-semibold";
-      } else if (diffDays <= 3) {
-        statusText = "Need to Renew";
-        statusColor = "text-yellow-600 font-semibold";
+      if (effectiveEndDate) {
+        const end = new Date(effectiveEndDate);
+        if (!isNaN(end.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          end.setHours(0, 0, 0, 0);
+          const diffDays = Math.ceil(
+            (end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+          );
+
+          if (diffDays < 0) {
+            statusText = "Expired";
+            statusColor = "text-red-600 font-semibold";
+          } else if (diffDays <= 3) {
+            statusText = "Need to Renew";
+            statusColor = "text-yellow-600 font-semibold";
+          } else {
+            statusText = "Active";
+            statusColor = "text-green-600 font-semibold";
+          }
+        }
       }
 
       return (
@@ -1017,126 +1131,266 @@ const sendWhatsAppReminder = async (client: GymBill) => {
       </div>
 
 
-      {editRenewId && (
-  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999]">
-    <div className="bg-white w-full max-w-lg p-4 rounded-xl shadow-lg">
-      <h3 className="text-lg font-bold text-yellow-700">Edit Renewal Entry</h3>
+      {editRenewId && editRenewData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white w-full max-w-lg p-5 rounded-xl shadow-2xl">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="text-lg font-bold text-yellow-700">Edit Renewal Entry</h3>
+              <button
+                onClick={() => {
+                  setEditRenewId(null);
+                  setEditRenewData(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
 
-      <div className="grid grid-cols-2 gap-4 mt-3">
-        <div>
-          <label className="text-xs">Joining Date</label>
-          <input 
-            type="date"
-            className="w-full border p-2 rounded"
-            value={editRenewData.joiningDate}
-            onChange={(e) =>
-              setEditRenewData({ ...editRenewData, joiningDate: e.target.value })
-            }
-          />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Package</label>
+                <input
+                  type="text"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editRenewData.package || ""}
+                  onChange={(e) =>
+                    setEditRenewData({ ...editRenewData, package: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Joining Date</label>
+                <input 
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editRenewData.joiningDate || ""}
+                  onChange={(e) =>
+                    setEditRenewData({ ...editRenewData, joiningDate: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">End Date</label>
+                <input 
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editRenewData.endDate || ""}
+                  onChange={(e) =>
+                    setEditRenewData({ ...editRenewData, endDate: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Price</label>
+                <input
+                  type="number"
+                  value={editRenewData.price ?? ""}
+                  className="w-full border p-2 rounded text-sm"
+                  onChange={(e) => {
+                    const price = Number(e.target.value) || 0;
+                    const disc = Number(editRenewData.discountAmount) || 0;
+                    const paid = Number(editRenewData.amountPaid) || 0;
+                    const adm = Number(editRenewData.admissionCharges) || 0;
+                    setEditRenewData({
+                      ...editRenewData,
+                      price: e.target.value,
+                      balance: Math.max(0, price + adm - disc - paid),
+                    });
+                  }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Discount Amount</label>
+                <input
+                  type="number"
+                  value={editRenewData.discountAmount ?? ""}
+                  className="w-full border p-2 rounded text-sm"
+                  onChange={(e) => {
+                    const disc = Number(e.target.value) || 0;
+                    const price = Number(editRenewData.price) || 0;
+                    const paid = Number(editRenewData.amountPaid) || 0;
+                    const adm = Number(editRenewData.admissionCharges) || 0;
+                    setEditRenewData({
+                      ...editRenewData,
+                      discountAmount: e.target.value,
+                      balance: Math.max(0, price + adm - disc - paid),
+                    });
+                  }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Amount Paid</label>
+                <input
+                  type="number"
+                  value={editRenewData.amountPaid ?? ""}
+                  className="w-full border p-2 rounded text-sm"
+                  onChange={(e) => {
+                    const paid = Number(e.target.value) || 0;
+                    const price = Number(editRenewData.price) || 0;
+                    const disc = Number(editRenewData.discountAmount) || 0;
+                    const adm = Number(editRenewData.admissionCharges) || 0;
+                    setEditRenewData({
+                      ...editRenewData,
+                      amountPaid: e.target.value,
+                      balance: Math.max(0, price + adm - disc - paid),
+                    });
+                  }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Balance</label>
+                <input
+                  type="number"
+                  value={editRenewData.balance ?? ""}
+                  className="w-full border p-2 rounded text-sm"
+                  onChange={(e) =>
+                    setEditRenewData({
+                      ...editRenewData,
+                      balance: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Remarks</label>
+                <textarea
+                  className="w-full border p-2 rounded text-sm"
+                  rows={2}
+                  value={editRenewData.remarks || ""}
+                  onChange={(e) =>
+                    setEditRenewData({
+                      ...editRenewData,
+                      remarks: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-5 border-t pt-3">
+              <button
+                onClick={() => {
+                  setEditRenewId(null);
+                  setEditRenewData(null);
+                }}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleEditRenewSave}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-md text-sm font-semibold transition cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </div>
+      )}
 
-        <div>
-          <label className="text-xs">End Date</label>
-          <input 
-            type="date"
-            className="w-full border p-2 rounded"
-            value={editRenewData.endDate}
-            onChange={(e) =>
-              setEditRenewData({ ...editRenewData, endDate: e.target.value })
-            }
-          />
+      {/* 💳 Edit Payment Entry Modal */}
+      {editPaymentId && editPaymentData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white w-full max-w-md p-5 rounded-xl shadow-2xl">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="text-lg font-bold text-yellow-700">Edit Payment Entry</h3>
+              <button
+                onClick={() => {
+                  setEditPaymentId(null);
+                  setEditPaymentData(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Date</label>
+                <input
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.date || ""}
+                  onChange={(e) =>
+                    setEditPaymentData({ ...editPaymentData, date: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Amount (₹)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.amount ?? ""}
+                  onChange={(e) =>
+                    setEditPaymentData({ ...editPaymentData, amount: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Payment Mode</label>
+                <select
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.mode || "Cash"}
+                  onChange={(e) =>
+                    setEditPaymentData({ ...editPaymentData, mode: e.target.value })
+                  }
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="GPay">GPay</option>
+                  <option value="PhonePe">PhonePe</option>
+                  <option value="Card">Card</option>
+                  <option value="Net Banking">Net Banking</option>
+                  <option value="Cheque">Cheque</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Note</label>
+                <input
+                  type="text"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.note || ""}
+                  onChange={(e) =>
+                    setEditPaymentData({ ...editPaymentData, note: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5 border-t pt-3">
+              <button
+                onClick={() => {
+                  setEditPaymentId(null);
+                  setEditPaymentData(null);
+                }}
+                className="px-4 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditPaymentSave}
+                className="px-4 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded font-medium cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div>
-          <label className="text-xs">Price</label>
-          <input
-            type="number"
-            value={editRenewData.price}
-            className="w-full border p-2 rounded"
-            onChange={(e) =>
-              setEditRenewData({ ...editRenewData, price: e.target.value })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs">Discount Amount</label>
-          <input
-            type="number"
-            value={editRenewData.discountAmount}
-            className="w-full border p-2 rounded"
-            onChange={(e) =>
-              setEditRenewData({
-                ...editRenewData,
-                discountAmount: e.target.value,
-              })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs">Amount Paid</label>
-          <input
-            type="number"
-            value={editRenewData.amountPaid}
-            className="w-full border p-2 rounded"
-            onChange={(e) =>
-              setEditRenewData({
-                ...editRenewData,
-                amountPaid: e.target.value,
-              })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs">Balance</label>
-          <input
-            type="number"
-            value={editRenewData.balance}
-            className="w-full border p-2 rounded"
-            onChange={(e) =>
-              setEditRenewData({
-                ...editRenewData,
-                balance: e.target.value,
-              })
-            }
-          />
-        </div>
-
-        <div className="col-span-2">
-          <label className="text-xs">Remarks</label>
-          <textarea
-            className="w-full border p-2 rounded"
-            value={editRenewData.remarks}
-            onChange={(e) =>
-              setEditRenewData({
-                ...editRenewData,
-                remarks: e.target.value,
-              })
-            }
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-end gap-3 mt-4">
-        <button
-          onClick={() => setEditRenewId(null)}
-          className="bg-gray-300 px-3 py-1 rounded-md"
-        >
-          Cancel
-        </button>
-
-        <button
-          onClick={handleEditRenewSave}
-          className="bg-yellow-500 text-white px-3 py-1 rounded-md"
-        >
-          Save Changes
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      )}
 
       {/* 👁 Full Client Details Modal */}
     {/* 👁 Full Client Details Modal */}
@@ -1172,13 +1426,32 @@ const sendWhatsAppReminder = async (client: GymBill) => {
           <p className="text-sm text-gray-500">
             Member ID: {selectedClient.memberId}
           </p>
-          <span className={`text-sm font-semibold ${
-            selectedClient.status === "Active"
-              ? "text-green-600"
-              : "text-red-600"
-          }`}>
-            {selectedClient.status}
-          </span>
+          {(() => {
+            let effectiveEndDate = selectedClient.endDate?.trim();
+            if (!effectiveEndDate && Array.isArray(selectedClient.renewalHistory) && selectedClient.renewalHistory.length > 0) {
+              const latest = [...selectedClient.renewalHistory].reverse().find((r) => r.endDate?.trim());
+              if (latest) effectiveEndDate = latest.endDate.trim();
+            }
+            let isAct = selectedClient.status === "Active";
+            let displayStatus = selectedClient.status || "Inactive";
+            if (effectiveEndDate) {
+              const end = new Date(effectiveEndDate);
+              if (!isNaN(end.getTime())) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                end.setHours(0, 0, 0, 0);
+                isAct = end.getTime() >= today.getTime();
+                displayStatus = isAct ? "Active" : "Inactive";
+              }
+            }
+            return (
+              <span className={`text-sm font-semibold ${
+                isAct ? "text-green-600" : "text-red-600"
+              }`}>
+                {displayStatus}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
@@ -1241,36 +1514,40 @@ const sendWhatsAppReminder = async (client: GymBill) => {
                   <th className="p-2 border">Package</th>
                   <th className="p-2 border">Price</th>
                   <th className="p-2 border">Paid</th>
-                  <th className="p-2 border">Balance</th>
+                  <th className="p-2 border">Discount</th>
                   <th className="p-2 border">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {[...selectedClient.renewalHistory].reverse().map((r) => (
-                  <tr key={r._id}>
-                    <td className="p-2 border">{r.date?.split("T")[0]}</td>
-                    <td className="p-2 border">{r.joiningDate}</td>
-                    <td className="p-2 border">{r.endDate}</td>
-                    <td className="p-2 border">{r.package}</td>
-                    <td className="p-2 border">₹{r.price}</td>
-                    <td className="p-2 border">₹{r.amountPaid}</td>
-                    <td className="p-2 border">₹{r.balance}</td>
-                    <td className="p-2 border text-center space-x-1">
-                      <button
-                        onClick={() => openRenewalEditModal(r, selectedClient._id)}
-                        className="bg-blue-500 text-white px-2 py-1 rounded text-xs"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRenew(r._id, selectedClient._id)}
-                        className="bg-red-500 text-white px-2 py-1 rounded text-xs"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {[...selectedClient.renewalHistory].reverse().map((r, index) => {
+                  const rId = r._id || r.id || `${selectedClient._id || (selectedClient as any).id}-renew-${index}`;
+                  const cId = selectedClient._id || (selectedClient as any).id;
+                  return (
+                    <tr key={rId}>
+                      <td className="p-2 border">{r.date?.split("T")[0] || "-"}</td>
+                      <td className="p-2 border">{r.joiningDate ? r.joiningDate.split("T")[0] : "-"}</td>
+                      <td className="p-2 border">{r.endDate ? r.endDate.split("T")[0] : "-"}</td>
+                      <td className="p-2 border">{r.package || "-"}</td>
+                      <td className="p-2 border">₹{r.price ?? 0}</td>
+                      <td className="p-2 border">₹{r.amountPaid ?? 0}</td>
+                      <td className="p-2 border">₹{r.discountAmount ?? r.discount ?? 0}</td>
+                      <td className="p-2 border text-center space-x-1">
+                        <button
+                          onClick={() => openRenewalEditModal(r, cId)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-xs transition cursor-pointer font-medium"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRenew(rId, cId)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs transition cursor-pointer font-medium"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
@@ -1292,17 +1569,36 @@ const sendWhatsAppReminder = async (client: GymBill) => {
                   <th className="p-2 border">Amount</th>
                   <th className="p-2 border">Mode</th>
                   <th className="p-2 border">Note</th>
+                  <th className="p-2 border">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {selectedClient.paymentHistory.map((p, i) => (
-                  <tr key={i}>
-                    <td className="p-2 border">{p.date?.split("T")[0]}</td>
-                    <td className="p-2 border">₹{p.amount}</td>
-                    <td className="p-2 border">{p.mode}</td>
-                    <td className="p-2 border">{p.note || "-"}</td>
-                  </tr>
-                ))}
+                {selectedClient.paymentHistory.map((p, i) => {
+                  const pId = p._id || p.id || `${selectedClient._id || (selectedClient as any).id}-pay-${i}`;
+                  const cId = selectedClient._id || (selectedClient as any).id;
+                  return (
+                    <tr key={pId}>
+                      <td className="p-2 border">{p.date?.split("T")[0] || "-"}</td>
+                      <td className="p-2 border">₹{p.amount ?? 0}</td>
+                      <td className="p-2 border">{p.mode || "-"}</td>
+                      <td className="p-2 border">{p.note || "-"}</td>
+                      <td className="p-2 border text-center space-x-1">
+                        <button
+                          onClick={() => openPaymentEditModal(p, pId, cId)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-xs transition cursor-pointer font-medium"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePayment(pId, cId)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs transition cursor-pointer font-medium"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (

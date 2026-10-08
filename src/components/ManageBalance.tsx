@@ -36,6 +36,64 @@ const ManageBalance: React.FC = () => {
   // ⭐ NEW: For viewing payment history
   const [historyClient, setHistoryClient] = useState<GymBill | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [editPaymentData, setEditPaymentData] = useState<any>(null);
+  const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
+
+  const openPaymentEditModal = (payment: any, pId: string) => {
+    setEditPaymentData({
+      ...payment,
+      _id: pId,
+      id: pId,
+      date: payment.date ? payment.date.split("T")[0] : "",
+      amount: payment.amount ?? "",
+      mode: payment.mode ?? "Cash",
+      note: payment.note ?? "",
+    });
+    setEditPaymentId(pId);
+  };
+
+  const handleEditPaymentSave = async () => {
+    if (!historyClient || !editPaymentId) {
+      alert("Missing client or payment ID");
+      return;
+    }
+
+    try {
+      await axios.put(
+        `${API_URI}/gymbill/payment/edit/${historyClient._id}/${editPaymentId}`,
+        editPaymentData
+      );
+
+      alert("Payment updated successfully");
+      setEditPaymentId(null);
+      setEditPaymentData(null);
+      fetchClients();
+      const updated = await axios.get(`${API_URI}/gymbill/${historyClient._id}`);
+      setHistoryClient(updated.data);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to update payment: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleDeletePayment = async (pId: string) => {
+    if (!historyClient || !pId) return;
+    if (!window.confirm("Are you sure you want to delete this payment entry?")) return;
+
+    try {
+      await axios.delete(
+        `${API_URI}/gymbill/payment/delete/${historyClient._id}/${pId}`
+      );
+
+      alert("Payment deleted successfully");
+      fetchClients();
+      const updated = await axios.get(`${API_URI}/gymbill/${historyClient._id}`);
+      setHistoryClient(updated.data);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to delete payment: " + (err.response?.data?.message || err.message));
+    }
+  };
 
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("");
@@ -320,23 +378,113 @@ const ManageBalance: React.FC = () => {
             </h3>
 
             {historyClient.paymentHistory?.length > 0 ? (
-              historyClient.paymentHistory.map((p, index) => (
-                <div
-                  key={index}
-                  className="border p-3 rounded-md bg-gray-50 mb-3"
-                >
-                  <p><strong>Amount:</strong> ₹{p.amount}</p>
-                  <p><strong>Mode:</strong> {p.mode}</p>
-                  <p><strong>Note:</strong> {p.note || "—"}</p>
-                  <p>
-                    <strong>Date:</strong>{" "}
-                    {new Date(p.date).toLocaleString()}
-                  </p>
-                </div>
-              ))
+              historyClient.paymentHistory.map((p, index) => {
+                const pId = (p as any)._id || (p as any).id || `${historyClient._id}-pay-${index}`;
+                return (
+                  <div
+                    key={pId}
+                    className="border p-3 rounded-md bg-gray-50 mb-3 flex justify-between items-start"
+                  >
+                    <div>
+                      <p><strong>Amount:</strong> ₹{p.amount}</p>
+                      <p><strong>Mode:</strong> {p.mode}</p>
+                      <p><strong>Note:</strong> {p.note || "—"}</p>
+                      <p>
+                        <strong>Date:</strong>{" "}
+                        {p.date ? (p.date.includes("T") ? p.date.split("T")[0] : new Date(p.date).toLocaleDateString()) : "-"}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5 ml-2">
+                      <button
+                        onClick={() => openPaymentEditModal(p, pId)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeletePayment(pId)}
+                        className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
             ) : (
               <p className="text-gray-500 text-center">No payment history found.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ✏️ EDIT PAYMENT MODAL */}
+      {editPaymentId && editPaymentData && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white p-5 rounded-lg shadow-xl w-[380px] relative">
+            <h3 className="text-md font-bold text-yellow-600 mb-3">Edit Payment Entry</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Date</label>
+                <input
+                  type="date"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.date || ""}
+                  onChange={(e) => setEditPaymentData({ ...editPaymentData, date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Amount (₹)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.amount ?? ""}
+                  onChange={(e) => setEditPaymentData({ ...editPaymentData, amount: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Mode</label>
+                <select
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.mode || "Cash"}
+                  onChange={(e) => setEditPaymentData({ ...editPaymentData, mode: e.target.value })}
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="GPay">GPay</option>
+                  <option value="PhonePe">PhonePe</option>
+                  <option value="Card">Card</option>
+                  <option value="Net Banking">Net Banking</option>
+                  <option value="Cheque">Cheque</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Note</label>
+                <input
+                  type="text"
+                  className="w-full border p-2 rounded text-sm"
+                  value={editPaymentData.note || ""}
+                  onChange={(e) => setEditPaymentData({ ...editPaymentData, note: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+              <button
+                onClick={() => {
+                  setEditPaymentId(null);
+                  setEditPaymentData(null);
+                }}
+                className="px-3 py-1 bg-gray-200 text-sm rounded font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditPaymentSave}
+                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-sm rounded font-medium cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
           </div>
         </div>
       )}

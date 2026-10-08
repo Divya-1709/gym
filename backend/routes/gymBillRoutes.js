@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import multer from "multer";
 import prisma from "../utils/db.js";
 import path from "path";
@@ -244,7 +245,10 @@ router.put("/renew/:id", async (req, res) => {
     const client = await prisma.gymBill.findUnique({ where: { id: req.params.id } });
     if (!client) return res.status(404).json({ message: "Client not found" });
 
+    const renewId = crypto.randomUUID();
     const previousCycle = {
+      _id: renewId,
+      id: renewId,
       joiningDate: client.joiningDate,
       endDate: client.endDate,
       package: client.package,
@@ -320,6 +324,89 @@ router.put("/renew/:id", async (req, res) => {
   } catch (err) {
     console.error("Renewal error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------
+// ✏️ Edit Renewal Entry
+// ------------------
+router.put("/renew/edit/:clientId/:renewId", async (req, res) => {
+  try {
+    const { clientId, renewId } = req.params;
+
+    const client = await prisma.gymBill.findUnique({ where: { id: clientId } });
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    const currentHistory = Array.isArray(client.renewalHistory) ? [...client.renewalHistory] : [];
+
+    const index = currentHistory.findIndex(
+      (r, idx) =>
+        String(r._id) === String(renewId) ||
+        String(r.id) === String(renewId) ||
+        `${clientId}-renew-${idx}` === String(renewId)
+    );
+
+    if (index === -1) {
+      return res.status(404).json({ message: "Renewal entry not found" });
+    }
+
+    const cleanFields = { ...req.body };
+    if (cleanFields.price !== undefined) cleanFields.price = Number(cleanFields.price) || 0;
+    if (cleanFields.admissionCharges !== undefined) cleanFields.admissionCharges = Number(cleanFields.admissionCharges) || 0;
+    if (cleanFields.discountAmount !== undefined) cleanFields.discountAmount = Number(cleanFields.discountAmount) || 0;
+    if (cleanFields.amountPaid !== undefined) cleanFields.amountPaid = Number(cleanFields.amountPaid) || 0;
+    if (cleanFields.balance !== undefined) cleanFields.balance = Number(cleanFields.balance) || 0;
+    if (cleanFields.ptAmount !== undefined) cleanFields.ptAmount = Number(cleanFields.ptAmount) || 0;
+
+    const existingEntry = currentHistory[index];
+    const finalId = existingEntry._id || existingEntry.id || renewId;
+
+    currentHistory[index] = {
+      ...existingEntry,
+      ...cleanFields,
+      _id: finalId,
+      id: finalId,
+    };
+
+    const updated = await prisma.gymBill.update({
+      where: { id: clientId },
+      data: { renewalHistory: currentHistory },
+    });
+
+    res.json({ message: "Renewal entry updated", data: updated });
+  } catch (error) {
+    console.error("Renewal edit error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ------------------
+// 🗑 Delete Renewal Entry
+// ------------------
+router.delete("/renew/delete/:clientId/:renewId", async (req, res) => {
+  try {
+    const { clientId, renewId } = req.params;
+
+    const client = await prisma.gymBill.findUnique({ where: { id: clientId } });
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    const currentHistory = Array.isArray(client.renewalHistory) ? client.renewalHistory : [];
+    const updatedRenewalHistory = currentHistory.filter(
+      (r, idx) =>
+        String(r._id) !== String(renewId) &&
+        String(r.id) !== String(renewId) &&
+        `${clientId}-renew-${idx}` !== String(renewId)
+    );
+
+    const updated = await prisma.gymBill.update({
+      where: { id: clientId },
+      data: { renewalHistory: updatedRenewalHistory },
+    });
+
+    res.json({ message: "Renewal entry deleted", data: updated });
+  } catch (err) {
+    console.error("Error deleting renewal:", err);
+    res.status(500).json({ message: "Deletion failed", error: err.message });
   }
 });
 
@@ -436,6 +523,136 @@ router.put("/payment/:id", async (req, res) => {
   }
 });
 
+// ----------------------------
+// ✏️ Edit Payment History Entry
+// ----------------------------
+router.put("/payment/edit/:clientId/:paymentId", async (req, res) => {
+  try {
+    const { clientId, paymentId } = req.params;
+    const client = await prisma.gymBill.findUnique({ where: { id: clientId } });
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    const currentHistory = Array.isArray(client.paymentHistory) ? [...client.paymentHistory] : [];
+    const index = currentHistory.findIndex(
+      (p, idx) =>
+        String(p._id) === String(paymentId) ||
+        String(p.id) === String(paymentId) ||
+        `${clientId}-pay-${idx}` === String(paymentId) ||
+        String(idx) === String(paymentId)
+    );
+
+    if (index === -1) {
+      return res.status(404).json({ message: "Payment entry not found" });
+    }
+
+    const oldEntry = currentHistory[index];
+    const oldAmount = Number(oldEntry.amount) || 0;
+    const newAmount = req.body.amount !== undefined ? (Number(req.body.amount) || 0) : oldAmount;
+    const diff = newAmount - oldAmount;
+
+    const finalId = oldEntry._id || oldEntry.id || paymentId;
+    currentHistory[index] = {
+      ...oldEntry,
+      amount: newAmount,
+      mode: req.body.mode !== undefined ? req.body.mode : oldEntry.mode,
+      note: req.body.note !== undefined ? req.body.note : (oldEntry.note || ""),
+      date: req.body.date ? new Date(req.body.date) : oldEntry.date,
+      _id: finalId,
+      id: finalId,
+    };
+
+    const newAmountPaid = (client.amountPaid || 0) + diff;
+    const newBalance = Math.max(0, (client.balance || 0) - diff);
+
+    const updated = await prisma.gymBill.update({
+      where: { id: clientId },
+      data: {
+        paymentHistory: currentHistory,
+        amountPaid: newAmountPaid,
+        balance: newBalance,
+      },
+    });
+
+    res.json({ message: "Payment entry updated", data: updated });
+  } catch (error) {
+    console.error("Payment edit error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ------------------------------
+// 🗑 Delete Payment History Entry
+// ------------------------------
+router.delete("/payment/delete/:clientId/:paymentId", async (req, res) => {
+  try {
+    const { clientId, paymentId } = req.params;
+    const client = await prisma.gymBill.findUnique({ where: { id: clientId } });
+    if (!client) return res.status(404).json({ message: "Client not found" });
+
+    const currentHistory = Array.isArray(client.paymentHistory) ? [...client.paymentHistory] : [];
+    const index = currentHistory.findIndex(
+      (p, idx) =>
+        String(p._id) === String(paymentId) ||
+        String(p.id) === String(paymentId) ||
+        `${clientId}-pay-${idx}` === String(paymentId) ||
+        String(idx) === String(paymentId)
+    );
+
+    if (index === -1) {
+      return res.status(404).json({ message: "Payment entry not found" });
+    }
+
+    const removedEntry = currentHistory[index];
+    const removedAmount = Number(removedEntry.amount) || 0;
+    const updatedHistory = currentHistory.filter((_, idx) => idx !== index);
+
+    const newAmountPaid = Math.max(0, (client.amountPaid || 0) - removedAmount);
+    const newBalance = (client.balance || 0) + removedAmount;
+
+    const updated = await prisma.gymBill.update({
+      where: { id: clientId },
+      data: {
+        paymentHistory: updatedHistory,
+        amountPaid: newAmountPaid,
+        balance: newBalance,
+      },
+    });
+
+    res.json({ message: "Payment entry deleted", data: updated });
+  } catch (err) {
+    console.error("Error deleting payment:", err);
+    res.status(500).json({ message: "Deletion failed", error: err.message });
+  }
+});
+
+// ---------------------------------------------
+// 🕒 Helper: Compute status based on expiry date
+// ---------------------------------------------
+function computeClientStatus(bill) {
+  let effectiveEndDate = bill.endDate ? String(bill.endDate).trim() : "";
+  if (!effectiveEndDate && Array.isArray(bill.renewalHistory) && bill.renewalHistory.length > 0) {
+    const latest = [...bill.renewalHistory].reverse().find(r => r.endDate && String(r.endDate).trim());
+    if (latest) {
+      effectiveEndDate = String(latest.endDate).trim();
+    }
+  }
+
+  if (!effectiveEndDate) {
+    return "Inactive";
+  }
+
+  const end = new Date(effectiveEndDate);
+  if (isNaN(end.getTime())) {
+    return "Inactive";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+
+  return end.getTime() >= today.getTime() ? "Active" : "Inactive";
+}
+
 // ---------------------
 // 📥 Get All Gym Bills
 // ---------------------
@@ -446,8 +663,26 @@ router.get("/", async (req, res) => {
     });
 
     bills = bills.map((bill) => {
-      const renewalHistory = Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [];
-      const paymentHistory = Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [];
+      const rawRenewalHistory = Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [];
+      const rawPaymentHistory = Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [];
+
+      const renewalHistory = rawRenewalHistory.map((r, idx) => {
+        const id = r._id || r.id || `${bill.id}-renew-${idx}`;
+        return {
+          ...r,
+          _id: id,
+          id: id,
+        };
+      });
+
+      const paymentHistory = rawPaymentHistory.map((p, idx) => {
+        const id = p._id || p.id || `${bill.id}-pay-${idx}`;
+        return {
+          ...p,
+          _id: id,
+          id: id,
+        };
+      });
 
       const renewalTotal = renewalHistory.reduce(
         (sum, r) => sum + (r.amountPaid || 0),
@@ -455,10 +690,12 @@ router.get("/", async (req, res) => {
       );
 
       const totalPaidIncludingRenewals = (bill.amountPaid || 0) + renewalTotal;
+      const computedStatus = computeClientStatus(bill);
 
       return {
         ...bill,
         _id: bill.id, // Frontend backward compatibility
+        status: computedStatus,
         paymentHistory,
         renewalHistory,
         totalPaidIncludingRenewals,
@@ -481,11 +718,34 @@ router.get("/:id", async (req, res) => {
     });
     if (!bill) return res.status(404).json({ message: "Bill not found" });
 
+    const rawRenewalHistory = Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [];
+    const renewalHistory = rawRenewalHistory.map((r, idx) => {
+      const id = r._id || r.id || `${bill.id}-renew-${idx}`;
+      return {
+        ...r,
+        _id: id,
+        id: id,
+      };
+    });
+
+    const rawPaymentHistory = Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [];
+    const paymentHistory = rawPaymentHistory.map((p, idx) => {
+      const id = p._id || p.id || `${bill.id}-pay-${idx}`;
+      return {
+        ...p,
+        _id: id,
+        id: id,
+      };
+    });
+
+    const computedStatus = computeClientStatus(bill);
+
     res.json({
       ...bill,
       _id: bill.id,
-      paymentHistory: Array.isArray(bill.paymentHistory) ? bill.paymentHistory : [],
-      renewalHistory: Array.isArray(bill.renewalHistory) ? bill.renewalHistory : [],
+      status: computedStatus,
+      paymentHistory,
+      renewalHistory,
     });
   } catch (error) {
     res.status(500).json({ message: "Error fetching bill", error: error.message });
