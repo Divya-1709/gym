@@ -167,6 +167,7 @@ model GymBill {
   remarks             String?
   package             String?
   days                String?
+  originalJoiningDate String?
   joiningDate         String?
   endDate             String?
   sessions            Int?

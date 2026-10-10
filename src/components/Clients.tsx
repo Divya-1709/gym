@@ -31,6 +31,7 @@ interface GymBill {
 
   package: string;
   joiningDate: string;
+  originalJoiningDate?: string;
   endDate: string;
 
   price?: number;
@@ -322,28 +323,79 @@ const fetchTrainers = async () => {
 };
 
 
-const [renewData, setRenewData] = useState({
-  joiningDate: "",
-  endDate: "",
-  package: "",
-  days: "", // ✅ ADD THIS
-  price: "",
-  discount: "",
-  discountAmount: "",
-  amountPaid: "",
-  balance: "",
-  remarks: "",
-  admissionCharges: "",
-  trainer: "",
-  paymentMethod: "",
-  ptAmount: "",
-  ptTrainer: "",
-});
+  const [packages, setPackages] = useState<
+    { id: string; name: string; durationDays: number; price: number }[]
+  >([]);
+
+  const fetchPackages = async () => {
+    try {
+      const res = await axios.get(`${API_URI}/packages`);
+      setPackages(res.data);
+    } catch (err) {
+      console.error("❌ Error fetching packages:", err);
+    }
+  };
+
+  const calculateEndDate = (joiningDate: string, days: number) => {
+    if (!joiningDate || !days) return "";
+    const start = new Date(joiningDate);
+    start.setDate(start.getDate() + days);
+    return start.toISOString().split("T")[0];
+  };
+
+  const [renewData, setRenewData] = useState({
+    joiningDate: "",
+    endDate: "",
+    package: "",
+    days: "",
+    price: "",
+    discount: "",
+    discountAmount: "",
+    amountPaid: "",
+    balance: "",
+    remarks: "",
+    admissionCharges: "",
+    trainer: "",
+    paymentMethod: "",
+    ptAmount: "",
+    ptTrainer: "",
+  });
+
   const [showRenewForm, setShowRenewForm] = useState<string | null>(
     initialTarget?.openRenewModal && initialTarget?.clientId
       ? initialTarget.clientId
       : null
   );
+
+  const openRenewModal = (client: GymBill) => {
+    let defaultJoin = new Date().toISOString().split("T")[0];
+    if (client.endDate && client.endDate.trim()) {
+      defaultJoin = client.endDate.trim();
+    }
+    const matchedPkg = packages.find((p) => p.name === client.package);
+    const pkgDays = matchedPkg ? matchedPkg.durationDays : 0;
+    const pkgPrice = matchedPkg ? matchedPkg.price : (Number(client.price) || 0);
+    const newEnd = pkgDays > 0 ? calculateEndDate(defaultJoin, pkgDays) : "";
+
+    setRenewData({
+      joiningDate: defaultJoin,
+      endDate: newEnd,
+      package: client.package || "",
+      days: pkgDays > 0 ? pkgDays.toString() : "",
+      price: pkgPrice > 0 ? pkgPrice.toString() : "",
+      discount: "",
+      discountAmount: "0",
+      amountPaid: pkgPrice > 0 ? pkgPrice.toString() : "",
+      balance: "0",
+      remarks: "",
+      admissionCharges: "0",
+      trainer: client.appointTrainer || "",
+      paymentMethod: client.initialPaymentMode || "Cash",
+      ptAmount: String(client.ptAmount || 0),
+      ptTrainer: client.ptTrainer || "",
+    });
+    setShowRenewForm(client._id);
+  };
 
   useEffect(() => {
     if (initialTarget) {
@@ -351,24 +403,101 @@ const [renewData, setRenewData] = useState({
         setFilters((prev) => ({ ...prev, search: initialTarget.search || "" }));
       }
       if (initialTarget.openRenewModal && initialTarget.clientId) {
-        setShowRenewForm(initialTarget.clientId);
+        const targetClient = clients.find((c) => c._id === initialTarget.clientId);
+        if (targetClient) {
+          openRenewModal(targetClient);
+        } else {
+          setShowRenewForm(initialTarget.clientId);
+        }
       }
     }
-  }, [initialTarget]);
-  const [packages, setPackages] = useState<
-  { id: string; name: string; durationDays: number; price: number }[]
->([]);
+  }, [initialTarget, clients]);
 
+  // ✏️ Edit Package Option (allows editing client's package after renewal or at any time)
+  const [editPackageClient, setEditPackageClient] = useState<GymBill | null>(null);
+  const [editPackageData, setEditPackageData] = useState({
+    package: "",
+    days: "",
+    joiningDate: "",
+    endDate: "",
+    price: "",
+    discountAmount: "",
+    amountPaid: "",
+    balance: "",
+    paymentMethod: "",
+    appointTrainer: "",
+    ptAmount: "",
+    ptTrainer: "",
+    remarks: "",
+  });
 
-  
-const fetchPackages = async () => {
-  try {
-    const res = await axios.get(`${API_URI}/packages`);
-    setPackages(res.data);
-  } catch (err) {
-    console.error("❌ Error fetching packages:", err);
-  }
-};
+  const openEditPackageModal = (client: GymBill) => {
+    const matchedPkg = packages.find((p) => p.name === client.package);
+    const pkgDays = client.days || (matchedPkg ? matchedPkg.durationDays.toString() : "");
+
+    setEditPackageClient(client);
+    setEditPackageData({
+      package: client.package || "",
+      days: pkgDays,
+      joiningDate: client.joiningDate || "",
+      endDate: client.endDate || "",
+      price: client.price !== undefined ? String(client.price) : "",
+      discountAmount: client.discountAmount !== undefined ? String(client.discountAmount) : "0",
+      amountPaid: client.amountPaid !== undefined ? String(client.amountPaid) : "0",
+      balance: client.balance !== undefined ? String(client.balance) : "0",
+      paymentMethod: client.initialPaymentMode || client.paymentMethodDetail || "Cash",
+      appointTrainer: client.appointTrainer || "",
+      ptAmount: client.ptAmount !== undefined ? String(client.ptAmount) : "0",
+      ptTrainer: client.ptTrainer || "",
+      remarks: client.remarks || "",
+    });
+  };
+
+  const handleSaveEditPackage = async () => {
+    if (!editPackageClient?._id) {
+      alert("Missing client ID");
+      return;
+    }
+
+    try {
+      const priceNum = Number(editPackageData.price) || 0;
+      const discNum = Number(editPackageData.discountAmount) || 0;
+      const paidNum = Number(editPackageData.amountPaid) || 0;
+      const calculatedBalance = priceNum - discNum - paidNum;
+
+      const payload = {
+        package: editPackageData.package,
+        days: editPackageData.days,
+        joiningDate: editPackageData.joiningDate,
+        endDate: editPackageData.endDate,
+        price: priceNum,
+        discountAmount: discNum,
+        amountPayable: priceNum - discNum,
+        amountPaid: paidNum,
+        balance: calculatedBalance,
+        initialPaymentMode: editPackageData.paymentMethod,
+        appointTrainer: editPackageData.appointTrainer,
+        ptAmount: Number(editPackageData.ptAmount) || 0,
+        ptTrainer: editPackageData.ptTrainer || null,
+        remarks: editPackageData.remarks,
+      };
+
+      await axios.put(`${API_URI}/gymbill/${editPackageClient._id}`, payload);
+      alert("Package updated successfully!");
+
+      const cId = editPackageClient._id;
+      setEditPackageClient(null);
+
+      // Refresh list and any active view modal
+      fetchClients();
+      if (selectedClient && (selectedClient._id === cId || (selectedClient as any).id === cId)) {
+        refreshSelectedClient(cId);
+      }
+    } catch (err: any) {
+      console.error("❌ Failed to update package:", err);
+      alert("Failed to update package: " + (err.response?.data?.message || err.message));
+    }
+  };
 
   
 
@@ -576,12 +705,6 @@ const handleDownloadPDF = async () => {
   }
 };
 
-const calculateEndDate = (joiningDate: string, days: number) => {
-  if (!joiningDate || !days) return "";
-  const start = new Date(joiningDate);
-  start.setDate(start.getDate() + days);
-  return start.toISOString().split("T")[0];
-};
 
 const sendWhatsAppReminder = async (client: GymBill) => {
   try {
@@ -745,14 +868,14 @@ const sendWhatsAppReminder = async (client: GymBill) => {
         checked={selectedClients.length === clients.length && clients.length > 0}
       />
     </th>
-    <th className="py-1.5 px-3 text-left">Member ID</th>
-    <th className="py-1.5 px-3 text-left">Client Name</th>
-    <th className="py-1.5 px-3 text-left">Contact</th>
-    <th className="py-1.5 px-3 text-left">Package</th>
-    <th className="py-1.5 px-3 text-left">Joining Date</th>
-    <th className="py-1.5 px-3 text-left">End Date</th>
-    <th className="py-1.5 px-3 text-left">Status</th>
-<th className="p-2 border">Actions</th>
+    <th className="py-1.5 px-2 text-left text-xs">ID</th>
+    <th className="py-1.5 px-2 text-left text-xs">Client Name</th>
+    <th className="py-1.5 px-2 text-left text-xs">Contact</th>
+    <th className="py-1.5 px-2 text-left text-xs">Package</th>
+    <th className="py-1.5 px-2 text-left text-xs">Join Date</th>
+    <th className="py-1.5 px-2 text-left text-xs">End Date</th>
+    <th className="py-1.5 px-2 text-left text-xs">Status</th>
+    <th className="py-1.5 px-2 text-center text-xs">Actions</th>
 
   </tr>
 </thead>
@@ -813,52 +936,65 @@ const sendWhatsAppReminder = async (client: GymBill) => {
               />
             </td>
 
-            <td className="py-1.5 px-3">{client.memberId}</td>
-            <td className="py-1.5 px-3">{client.client}</td>
-            <td className="py-1.5 px-3">{client.contactNumber}</td>
-            <td className="py-1.5 px-3">{client.package}</td>
-            <td className="py-1.5 px-3">{client.joiningDate}</td>
-            <td className="py-1.5 px-3">{client.endDate}</td>
-            <td className={`py-1.5 px-3 ${statusColor}`}>{statusText}</td>
+            <td className="py-1 px-2 text-xs">{client.memberId}</td>
+            <td className="py-1 px-2 text-xs font-medium">{client.client}</td>
+            <td className="py-1 px-2 text-xs">{client.contactNumber}</td>
+            <td className="py-1 px-2 text-xs">{client.package}</td>
+            <td className="py-1 px-2 text-xs">{client.joiningDate ? client.joiningDate.split('T')[0] : '-'}</td>
+            <td className="py-1 px-2 text-xs">{client.endDate ? client.endDate.split('T')[0] : '-'}</td>
+            <td className={`py-1 px-2 text-xs ${statusColor}`}>{statusText}</td>
 
-            <td className="py-1.5 px-3 text-center space-x-2">
-              <button
-                onClick={() => setSelectedClient(client)}
-                className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-md"
-              >
-                View
-              </button>
-              <button
-                onClick={() =>
-                  setShowRenewForm(
-                    showRenewForm === client._id ? null : client._id
-                  )
-                }
-                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-md"
-              >
-                Renew
-              </button>
-
-              <button
-                onClick={() => generateCurrentPackageBill(client)}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md"
-              >
-                Download Bill
-              </button>
-
-              <button
-                onClick={() => sendWhatsAppReminder(client)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-md inline-flex items-center gap-1"
-                title="Send WhatsApp Expiry Reminder"
-              >
-                📱 Reminder
-              </button>
-
-
-              
-
+            <td className="py-1 px-2">
+              <div className="flex flex-col gap-1">
+                {/* Row 1: primary actions */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setSelectedClient(client)}
+                    title="View client details"
+                    className="flex items-center gap-0.5 bg-yellow-500 hover:bg-yellow-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer transition leading-tight"
+                  >
+                    👁 View
+                  </button>
+                  <button
+                    onClick={() =>
+                      showRenewForm === client._id
+                        ? setShowRenewForm(null)
+                        : openRenewModal(client)
+                    }
+                    title="Renew membership"
+                    className="flex items-center gap-0.5 bg-green-500 hover:bg-green-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer transition leading-tight"
+                  >
+                    🔁 Renew
+                  </button>
+                  <button
+                    onClick={() => openEditPackageModal(client)}
+                    title="Edit Package & Membership"
+                    className="flex items-center gap-0.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer transition leading-tight"
+                  >
+                    ✏️ Pkg
+                  </button>
+                </div>
+                {/* Row 2: secondary actions */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => generateCurrentPackageBill(client)}
+                    title="Download Bill PDF"
+                    className="flex items-center gap-0.5 bg-blue-500 hover:bg-blue-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer transition leading-tight"
+                  >
+                    📄 Bill
+                  </button>
+                  <button
+                    onClick={() => sendWhatsAppReminder(client)}
+                    title="Send WhatsApp Expiry Reminder"
+                    className="flex items-center gap-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold px-2 py-0.5 rounded cursor-pointer transition leading-tight"
+                  >
+                    📱 Remind
+                  </button>
+                </div>
+              </div>
             </td>
           </tr>
+
 
           {/* 🔁 Renewal Modal */}
         {showRenewForm === client._id && (
@@ -1131,6 +1267,305 @@ const sendWhatsAppReminder = async (client: GymBill) => {
       </div>
 
 
+      {/* ✏️ Edit Package / Membership Modal (Accessible anytime & after renewal) */}
+      {editPackageClient && editPackageData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white w-full max-w-xl p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b pb-3">
+              <div>
+                <h3 className="text-xl font-bold text-yellow-700">
+                  Edit Package & Membership
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {editPackageClient.client} · Member ID: {editPackageClient.memberId || "N/A"}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditPackageClient(null)}
+                className="text-gray-400 hover:text-red-600 font-bold text-2xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {/* Package Selection */}
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-gray-700 block mb-1">
+                  Package <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white border-yellow-300 focus:ring-2 focus:ring-yellow-400 focus:outline-none"
+                  value={editPackageData.package}
+                  onChange={(e) => {
+                    const selectedPkgName = e.target.value;
+                    const selectedPkg = packages.find((p) => p.name === selectedPkgName);
+                    const newDays = selectedPkg ? selectedPkg.durationDays : 0;
+                    const newPrice = selectedPkg ? selectedPkg.price : (Number(editPackageData.price) || 0);
+                    const newEndDate = (editPackageData.joiningDate && newDays > 0)
+                      ? calculateEndDate(editPackageData.joiningDate, newDays)
+                      : editPackageData.endDate;
+                    const disc = Number(editPackageData.discountAmount) || 0;
+                    const paid = Number(editPackageData.amountPaid) || 0;
+                    const newBalance = newPrice - disc - paid;
+
+                    setEditPackageData({
+                      ...editPackageData,
+                      package: selectedPkgName,
+                      days: newDays > 0 ? newDays.toString() : editPackageData.days,
+                      price: newPrice.toString(),
+                      endDate: newEndDate,
+                      balance: newBalance.toFixed(2),
+                    });
+                  }}
+                >
+                  <option value="">Select Package</option>
+                  <option value="Personal Training">🏋️ Personal Training</option>
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} (₹{p.price} · {p.durationDays} days)
+                    </option>
+                  ))}
+                  {editPackageData.package &&
+                    !packages.some((p) => p.name === editPackageData.package) &&
+                    editPackageData.package !== "Personal Training" && (
+                      <option value={editPackageData.package}>{editPackageData.package}</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Joining Date */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Joining Date</label>
+                <input
+                  type="date"
+                  className="w-full border p-2 rounded-lg text-sm"
+                  value={editPackageData.joiningDate}
+                  onChange={(e) => {
+                    const newJoin = e.target.value;
+                    const daysNum = Number(editPackageData.days) || 0;
+                    const newEnd = daysNum > 0 ? calculateEndDate(newJoin, daysNum) : editPackageData.endDate;
+                    setEditPackageData({
+                      ...editPackageData,
+                      joiningDate: newJoin,
+                      endDate: newEnd,
+                    });
+                  }}
+                />
+              </div>
+
+              {/* End Date */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">End Date</label>
+                <input
+                  type="date"
+                  className="w-full border p-2 rounded-lg text-sm bg-gray-50"
+                  value={editPackageData.endDate}
+                  onChange={(e) =>
+                    setEditPackageData({ ...editPackageData, endDate: e.target.value })
+                  }
+                />
+              </div>
+
+              {/* Duration Days */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Duration (Days)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded-lg text-sm"
+                  value={editPackageData.days}
+                  onChange={(e) => {
+                    const days = e.target.value;
+                    const daysNum = Number(days) || 0;
+                    const newEnd = (editPackageData.joiningDate && daysNum > 0)
+                      ? calculateEndDate(editPackageData.joiningDate, daysNum)
+                      : editPackageData.endDate;
+                    setEditPackageData({
+                      ...editPackageData,
+                      days,
+                      endDate: newEnd,
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Price */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Price (₹)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded-lg text-sm"
+                  value={editPackageData.price}
+                  onChange={(e) => {
+                    const price = Number(e.target.value) || 0;
+                    const disc = Number(editPackageData.discountAmount) || 0;
+                    const paid = Number(editPackageData.amountPaid) || 0;
+                    setEditPackageData({
+                      ...editPackageData,
+                      price: e.target.value,
+                      balance: (price - disc - paid).toFixed(2),
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Discount Amount */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Discount Amount (₹)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded-lg text-sm"
+                  value={editPackageData.discountAmount}
+                  onChange={(e) => {
+                    const disc = Number(e.target.value) || 0;
+                    const price = Number(editPackageData.price) || 0;
+                    const paid = Number(editPackageData.amountPaid) || 0;
+                    setEditPackageData({
+                      ...editPackageData,
+                      discountAmount: e.target.value,
+                      balance: (price - disc - paid).toFixed(2),
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Amount Paid */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Amount Paid (₹)</label>
+                <input
+                  type="number"
+                  className="w-full border p-2 rounded-lg text-sm"
+                  value={editPackageData.amountPaid}
+                  onChange={(e) => {
+                    const paid = Number(e.target.value) || 0;
+                    const price = Number(editPackageData.price) || 0;
+                    const disc = Number(editPackageData.discountAmount) || 0;
+                    setEditPackageData({
+                      ...editPackageData,
+                      amountPaid: e.target.value,
+                      balance: (price - disc - paid).toFixed(2),
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Balance */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Balance (₹)</label>
+                <input
+                  type="number"
+                  readOnly
+                  className="w-full border p-2 rounded-lg text-sm bg-gray-100 font-semibold text-gray-800"
+                  value={editPackageData.balance}
+                />
+              </div>
+
+              {/* Payment Method */}
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Payment Method</label>
+                <select
+                  className="w-full border p-2 rounded-lg text-sm bg-white"
+                  value={editPackageData.paymentMethod}
+                  onChange={(e) =>
+                    setEditPackageData({ ...editPackageData, paymentMethod: e.target.value })
+                  }
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                  <option value="UPI">UPI</option>
+                  <option value="GPay">GPay</option>
+                  <option value="Paytm">Paytm</option>
+                </select>
+              </div>
+
+              {/* Appointed Trainer */}
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Appointed Trainer</label>
+                <select
+                  className="w-full border p-2 rounded-lg text-sm bg-white"
+                  value={editPackageData.appointTrainer}
+                  onChange={(e) =>
+                    setEditPackageData({ ...editPackageData, appointTrainer: e.target.value })
+                  }
+                >
+                  <option value="">Select Trainer</option>
+                  {_trainers.map((t) => (
+                    <option key={t.id || t._id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* PT Fields */}
+              {isPTPackage(editPackageData.package) && (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-yellow-700 block mb-1">PT Amount (₹)</label>
+                    <input
+                      type="number"
+                      className="w-full border p-2 rounded-lg text-sm border-yellow-300"
+                      value={editPackageData.ptAmount}
+                      onChange={(e) =>
+                        setEditPackageData({ ...editPackageData, ptAmount: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-yellow-700 block mb-1">PT Trainer</label>
+                    <select
+                      className="w-full border p-2 rounded-lg text-sm border-yellow-300 bg-white"
+                      value={editPackageData.ptTrainer}
+                      onChange={(e) =>
+                        setEditPackageData({ ...editPackageData, ptTrainer: e.target.value })
+                      }
+                    >
+                      <option value="">Select PT Trainer</option>
+                      {_trainers.map((t) => (
+                        <option key={t.id || t._id} value={t.id || t._id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {/* Remarks */}
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Remarks</label>
+                <textarea
+                  className="w-full border p-2 rounded-lg text-sm"
+                  rows={2}
+                  value={editPackageData.remarks}
+                  onChange={(e) =>
+                    setEditPackageData({ ...editPackageData, remarks: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6 border-t pt-4">
+              <button
+                type="button"
+                onClick={() => setEditPackageClient(null)}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg font-medium cursor-pointer transition text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditPackage}
+                className="bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded-lg font-semibold cursor-pointer transition shadow-md text-sm"
+              >
+                Save Package Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {editRenewId && editRenewData && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white w-full max-w-lg p-5 rounded-xl shadow-2xl">
@@ -1150,14 +1585,44 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="text-xs font-semibold text-gray-700 block mb-1">Package</label>
-                <input
-                  type="text"
-                  className="w-full border p-2 rounded text-sm"
+                <select
+                  className="w-full border p-2 rounded text-sm bg-white"
                   value={editRenewData.package || ""}
-                  onChange={(e) =>
-                    setEditRenewData({ ...editRenewData, package: e.target.value })
-                  }
-                />
+                  onChange={(e) => {
+                    const selectedPkgName = e.target.value;
+                    const selectedPkg = packages.find((p) => p.name === selectedPkgName);
+                    const newPrice = selectedPkg ? selectedPkg.price : (Number(editRenewData.price) || 0);
+                    const newDays = selectedPkg ? selectedPkg.durationDays : 0;
+                    const newEndDate = (editRenewData.joiningDate && newDays > 0)
+                      ? calculateEndDate(editRenewData.joiningDate, newDays)
+                      : editRenewData.endDate;
+                    const disc = Number(editRenewData.discountAmount) || 0;
+                    const paid = Number(editRenewData.amountPaid) || 0;
+                    const adm = Number(editRenewData.admissionCharges) || 0;
+                    const newBalance = newPrice + adm - disc - paid;
+
+                    setEditRenewData({
+                      ...editRenewData,
+                      package: selectedPkgName,
+                      price: newPrice,
+                      endDate: newEndDate,
+                      balance: newBalance,
+                    });
+                  }}
+                >
+                  <option value="">Select Package</option>
+                  <option value="Personal Training">🏋️ Personal Training</option>
+                  {packages.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} (₹{p.price} · {p.durationDays} days)
+                    </option>
+                  ))}
+                  {editRenewData.package &&
+                    !packages.some((p) => p.name === editRenewData.package) &&
+                    editRenewData.package !== "Personal Training" && (
+                      <option value={editRenewData.package}>{editRenewData.package}</option>
+                  )}
+                </select>
               </div>
 
               <div>
@@ -1471,11 +1936,26 @@ const sendWhatsAppReminder = async (client: GymBill) => {
           <p><strong>Address:</strong> {selectedClient.areaAddress || "-"}</p>
           <p><strong>Source:</strong> {selectedClient.clientSource || "-"}</p>
           <p><strong>Client Rep:</strong> {selectedClient.clientRep || "-"}</p>
+          <p className="bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1">
+            <strong>📅 Joining Date:</strong>{" "}
+            <span className="text-yellow-800 font-semibold">
+              {selectedClient.originalJoiningDate || selectedClient.joiningDate || "-"}
+            </span>
+          </p>
         </div>
 
         {/* 📦 Package Details */}
         <div className="space-y-2">
-          <h4 className="font-bold text-yellow-700">Package Details</h4>
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-yellow-700">Package Details</h4>
+            <button
+              onClick={() => openEditPackageModal(selectedClient)}
+              className="text-xs bg-purple-600 hover:bg-purple-700 text-white font-medium px-2.5 py-1 rounded shadow-sm transition cursor-pointer flex items-center gap-1"
+              title="Edit current package & membership details"
+            >
+              ✏️ Edit Package
+            </button>
+          </div>
           <p><strong>Package:</strong> {selectedClient.package}</p>
           <p><strong>Joining Date:</strong> {selectedClient.joiningDate}</p>
           <p><strong>End Date:</strong> {selectedClient.endDate}</p>
@@ -1631,13 +2111,25 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             </div>
 
             <div className="p-5 space-y-4 text-sm">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-900">
-                <div className="font-bold text-base mb-0.5">
-                  {renewalSuccess.client.client} (ID: {renewalSuccess.client.memberId})
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-900 flex justify-between items-center gap-3">
+                <div>
+                  <div className="font-bold text-base mb-0.5">
+                    {renewalSuccess.client.client} (ID: {renewalSuccess.client.memberId})
+                  </div>
+                  <div className="text-xs text-yellow-800">
+                    Renewed for <b>{renewalSuccess.client.package}</b> · Amount Paid: <b>₹{renewalSuccess.client.amountPaid}</b>
+                  </div>
                 </div>
-                <div className="text-xs text-yellow-800">
-                  Renewed for <b>{renewalSuccess.client.package}</b> · Amount Paid: <b>₹{renewalSuccess.client.amountPaid}</b>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openEditPackageModal(renewalSuccess.client);
+                  }}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+                  title="Edit Package & Membership"
+                >
+                  ✏️ Edit Package
+                </button>
               </div>
 
               <div className="space-y-2 bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700">

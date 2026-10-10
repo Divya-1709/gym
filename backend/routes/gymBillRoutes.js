@@ -24,7 +24,7 @@ const upload = multer({ dest: "uploads/" });
 const ALLOWED_BILL_FIELDS = [
   "invoiceId", "invoiceDate", "memberId", "client", "contactNumber", "alternateContact",
   "email", "clientSource", "gender", "dateOfBirth", "anniversary", "profession",
-  "taxId", "workoutHours", "areaAddress", "remarks", "package", "days", "joiningDate",
+  "taxId", "workoutHours", "areaAddress", "remarks", "package", "days", "originalJoiningDate", "joiningDate",
   "endDate", "sessions", "price", "discount", "discountAmount", "admissionCharges",
   "tax", "amountPayable", "amountPaid", "balance", "amount", "initialPaymentMode",
   "followupDate", "status", "paymentMethodDetail", "appointTrainer", "clientRep",
@@ -195,6 +195,7 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
         amount: Number(req.body.amount) || 0,
         ptAmount: Number(req.body.ptAmount) || 0,
         ptTrainer: req.body.ptTrainer || null,
+        originalJoiningDate: sanitizedData.joiningDate || req.body.joiningDate || new Date().toISOString().split("T")[0],
         paymentHistory: initialHistory,
         renewalHistory: [],
       },
