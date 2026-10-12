@@ -40,7 +40,7 @@ const GymBillForm: React.FC = () => {
     ptText?: string;
   } | null>(null);
 
-  const isPTPackage = (pkg: string) => /pt|personal.?training/i.test(pkg);
+  const isPTPackage = (pkg: string) => /pt|personal.?training|\+\s*pt/i.test(pkg);
 
   const [formData, setFormData] = useState({
     invoiceId: "",
@@ -89,7 +89,7 @@ const GymBillForm: React.FC = () => {
     start.setDate(start.getDate() + days);
     return start.toISOString().split("T")[0];
   };
-  const upiOptions = ["UPI", "Cash", "Card", "Bank", "Others"];
+  const upiOptions = ["Cash", "UPI", "GPay", "Paytm", "Card", "Bank", "Others"];
 
 
   // Fetch trainers
@@ -132,30 +132,36 @@ const GymBillForm: React.FC = () => {
   }, []);
 
   // Auto calculation for amounts and balance
- useEffect(() => {
-  const price = Number(formData.price) || 0;
-  const discountAmount = Number(formData.discountAmount) || 0;
-  const admissionCharges = Number(formData.admissionCharges) || 0;
-  const taxPercent = Number(formData.tax) || 0;
-  const amountPaid = Number(formData.amountPaid) || 0;
+  useEffect(() => {
+    const price = Number(formData.price) || 0;
+    const discountAmount = Number(formData.discountAmount) || 0;
+    const admissionCharges = Number(formData.admissionCharges) || 0;
+    const taxPercent = Number(formData.tax) || 0;
+    const amountPaid = Number(formData.amountPaid) || 0;
+    const ptAmt = isPTPackage(formData.package) ? (Number(ptAmount) || 0) : 0;
+    const isPurePT = /pt|personal.?training/i.test(formData.package) && !/[\+&]|combo|,/i.test(formData.package);
 
-  const taxableAmount = price - discountAmount + admissionCharges;
-  const taxAmount = taxableAmount * (taxPercent / 100);
-  const amountPayable = taxableAmount + taxAmount;
-  const balance = amountPayable - amountPaid;
+    const gymTaxable = price - discountAmount + admissionCharges;
+    const gymTax = gymTaxable * (taxPercent / 100);
+    const gymTotal = gymTaxable + gymTax;
 
-  setFormData(prev => ({
-    ...prev,
-    amountPayable: amountPayable.toFixed(2),
-    balance: balance.toFixed(2)
-  }));
-}, [
-  formData.price,
-  formData.discountAmount,
-  formData.admissionCharges,
-  formData.tax,
-  formData.amountPaid
-]);
+    const totalPayable = isPurePT ? (ptAmt || gymTotal) : (gymTotal + ptAmt);
+    const balance = totalPayable - amountPaid;
+
+    setFormData(prev => ({
+      ...prev,
+      amountPayable: totalPayable.toFixed(2),
+      balance: balance.toFixed(2)
+    }));
+  }, [
+    formData.package,
+    formData.price,
+    formData.discountAmount,
+    formData.admissionCharges,
+    formData.tax,
+    formData.amountPaid,
+    ptAmount
+  ]);
 
   // Generic input handler
   const handleChange = (
@@ -204,9 +210,13 @@ const GymBillForm: React.FC = () => {
 
     try {
       const isPT = isPTPackage(formData.package);
+      // For pure PT packages: PT amount = full amount paid
+      // For combo packages like '1 Month + PT': PT amount = explicitly entered ptAmount field
+      // For non-PT packages: PT amount = 0
+      const isPurePT = /pt|personal.?training/i.test(formData.package) && !/[\+&]|combo|,/i.test(formData.package);
       const effectivePtAmount = Number(ptAmount) > 0
         ? Number(ptAmount)
-        : (/^(personal\s*training|pt)$/i.test(formData.package.trim())
+        : (isPurePT
             ? Number(formData.amountPaid || formData.price || 0)
             : 0);
 
@@ -547,28 +557,33 @@ const GymBillForm: React.FC = () => {
           name="package"
           value={formData.package}
           onChange={(e) => {
-            const selected = packages.find((p) => p.name === e.target.value);
-            const days = selected ? selected.durationDays : 0;
-            const price = selected ? selected.price : 0;
+            const val = e.target.value;
+            const selected = packages.find((p) => p.name === val);
+            const isOneMonthPT = /1\s*month\s*\+\s*pt/i.test(val);
+            const days = selected ? selected.durationDays : (isOneMonthPT ? 30 : 0);
+            const price = selected ? selected.price.toString() : (isOneMonthPT ? (formData.price || "") : "0");
             const newEnd = calculateEndDate(formData.joiningDate, days);
 
             setFormData((prev) => ({
               ...prev,
-              package: e.target.value,
+              package: val,
               days: days.toString(),
-              price: price.toString(),
+              price: price,
               endDate: newEnd,
             }));
           }}
           className="border p-2 w-full rounded"
         >
           <option value="">Select Package</option>
-            <option value="Personal Training">🏋️ Personal Training</option>
-          {packages.map((pkg) => (
-            <option key={pkg.id} value={pkg.name}>
-              {pkg.name}
-            </option>
-          ))}
+          <option value="Personal Training">🏋️ Personal Training</option>
+          <option value="1 Month + PT">🏋️ 1 Month + PT</option>
+          {packages
+            .filter((pkg) => !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(pkg.name.trim()))
+            .map((pkg) => (
+              <option key={pkg.id} value={pkg.name}>
+                {pkg.name}
+              </option>
+            ))}
         </select>
 
         <input
@@ -595,7 +610,18 @@ const GymBillForm: React.FC = () => {
 
       {/* Price */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <input name="price" value={formData.price} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Price" />
+        <div>
+          {/1\s*month\s*\+\s*pt/i.test(formData.package) && (
+            <label className="block text-xs font-semibold text-blue-700 mb-1">🏋️ 1 Month Gym Fee (₹)</label>
+          )}
+          <input
+            name="price"
+            value={formData.price}
+            onChange={handleChange}
+            className="border p-2 w-full rounded"
+            placeholder={/1\s*month\s*\+\s*pt/i.test(formData.package) ? "Enter Gym Fee" : "Price"}
+          />
+        </div>
         <input name="tax" value={formData.tax} onChange={handleChange} className="border p-2 w-full rounded" placeholder="Tax %" />
       </div>
 

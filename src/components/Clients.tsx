@@ -1049,18 +1049,20 @@ const sendWhatsAppReminder = async (client: GymBill) => {
             className="w-full border p-2 rounded"
             value={renewData.package}
             onChange={(e) => {
+              const val = e.target.value;
               const selected = packages.find(
-                (p) => p.name === e.target.value
+                (p) => p.name === val
               );
-              const newDays = selected ? selected.durationDays : 0;
-              const newPrice = selected ? selected.price : 0;
+              const isOneMonthPT = /1\s*month\s*\+\s*pt/i.test(val);
+              const newDays = selected ? selected.durationDays : (isOneMonthPT ? 30 : 0);
+              const newPrice = selected ? selected.price : (isOneMonthPT ? (renewData.price || "") : 0);
               const newEndDate = calculateEndDate(
                 renewData.joiningDate,
                 newDays
               );
               setRenewData({
                 ...renewData,
-                package: e.target.value,
+                package: val,
                 days: newDays.toString(),
                 price: newPrice.toString(),
                 endDate: newEndDate,
@@ -1069,11 +1071,14 @@ const sendWhatsAppReminder = async (client: GymBill) => {
           >
             <option value="">Select Package</option>
             <option value="Personal Training">🏋️ Personal Training</option>
-            {packages.map((p) => (
-              <option key={p.id} value={p.name}>
-                {p.name}
-              </option>
-            ))}
+            <option value="1 Month + PT">🏋️ 1 Month + PT</option>
+            {packages
+              .filter((p) => !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(p.name.trim()))
+              .map((p) => (
+                <option key={p.id} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
           </select>
         </div>
 
@@ -1321,14 +1326,17 @@ const sendWhatsAppReminder = async (client: GymBill) => {
                 >
                   <option value="">Select Package</option>
                   <option value="Personal Training">🏋️ Personal Training</option>
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} (₹{p.price} · {p.durationDays} days)
-                    </option>
-                  ))}
+                  <option value="1 Month + PT">🏋️ 1 Month + PT</option>
+                  {packages
+                    .filter((p) => !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(p.name.trim()))
+                    .map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name} (₹{p.price} · {p.durationDays} days)
+                      </option>
+                    ))}
                   {editPackageData.package &&
                     !packages.some((p) => p.name === editPackageData.package) &&
-                    editPackageData.package !== "Personal Training" && (
+                    !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(editPackageData.package) && (
                       <option value={editPackageData.package}>{editPackageData.package}</option>
                   )}
                 </select>
@@ -1612,14 +1620,17 @@ const sendWhatsAppReminder = async (client: GymBill) => {
                 >
                   <option value="">Select Package</option>
                   <option value="Personal Training">🏋️ Personal Training</option>
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} (₹{p.price} · {p.durationDays} days)
-                    </option>
-                  ))}
+                  <option value="1 Month + PT">🏋️ 1 Month + PT</option>
+                  {packages
+                    .filter((p) => !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(p.name.trim()))
+                    .map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name} (₹{p.price} · {p.durationDays} days)
+                      </option>
+                    ))}
                   {editRenewData.package &&
                     !packages.some((p) => p.name === editRenewData.package) &&
-                    editRenewData.package !== "Personal Training" && (
+                    !/^(personal\s*training|1\s*month\s*\+\s*pt)$/i.test(editRenewData.package) && (
                       <option value={editRenewData.package}>{editRenewData.package}</option>
                   )}
                 </select>
