@@ -309,25 +309,45 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         : [];
       setRawGymBills(gymbills);
 
-      // 2. Client Status & Totals (1072 total, 143 active, 929 inactive)
-      const active = gymbills.filter((g) => (g.status || "").toLowerCase() === "active").length;
-      const inactive = gymbills.filter((g) => (g.status || "").toLowerCase() === "inactive").length;
+      // 2. Client Status & Totals — filtered by selected date range when set
+      const rangeFromClients = fromDate ? new Date(fromDate) : null;
+      const rangeToClients = toDate ? new Date(toDate) : null;
+      if (rangeToClients) rangeToClients.setHours(23, 59, 59, 999);
+
+      const filteredGymBills = (rangeFromClients && rangeToClients)
+        ? gymbills.filter((g) => {
+            const dStr = g.joiningDate || g.createdAt;
+            if (!dStr) return false;
+            const d = new Date(dStr);
+            return d >= rangeFromClients && d <= rangeToClients;
+          })
+        : gymbills;
+
+      const active = filteredGymBills.filter((g) => (g.status || "").toLowerCase() === "active").length;
+      const inactive = filteredGymBills.filter((g) => (g.status || "").toLowerCase() === "inactive").length;
       setActiveCount(active);
       setInactiveCount(inactive);
-      setTotalClients(gymbills.length);
+      setTotalClients(filteredGymBills.length);
 
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const newClientsCount = gymbills.filter((g) => {
+      // New Clients: use selected date range if set, otherwise last 30 days
+      const newClientsCount = filteredGymBills.filter((g) => {
         const dStr = g.joiningDate || g.createdAt;
         if (!dStr) return false;
         const d = new Date(dStr);
+        if (rangeFromClients && rangeToClients) {
+          return d >= rangeFromClients && d <= rangeToClients;
+        }
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         return d >= thirtyDaysAgo;
       }).length;
       setNewClients(newClientsCount);
 
-      setTotalAmountPaid(0);
-      setTotalPendingBalance(0);
+      // Total Revenue & Pending Balance — computed from filtered gym bills
+      const totalPaid = filteredGymBills.reduce((sum, b) => sum + getClientPaid(b), 0);
+      const totalPending = filteredGymBills.reduce((sum, b) => sum + (Number(b.balance) || 0), 0);
+      setTotalAmountPaid(totalPaid);
+      setTotalPendingBalance(totalPending);
 
       // 4. Monthly Gym Collection (pure Gym fee, excluding PT share)
       const rangeFrom = fromDate ? new Date(fromDate) : null;
@@ -416,12 +436,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
       });
       setMonthlyGraph(yearlyData);
 
-      // 7. Expenses
+      // 7. Expenses — filtered by selected date range when set
       try {
         const expensesRes = await axios.get<any[]>(`${API_URI}/expenses`).catch(() => ({ data: [] }));
         const expensesArray = Array.isArray(expensesRes?.data) ? expensesRes.data : [];
         setRawExpenses(expensesArray);
-        const expTotal = expensesArray.reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
+        const filteredExpenses = (rangeFrom && rangeTo)
+          ? expensesArray.filter((e: any) => {
+              const dStr = e.date || e.createdAt;
+              if (!dStr) return false;
+              const d = new Date(dStr);
+              return d >= rangeFrom && d <= rangeTo;
+            })
+          : expensesArray;
+        const expTotal = filteredExpenses.reduce((sum: number, e: any) => sum + (parseFloat(e.amount) || 0), 0);
         setTotalExpenses(expTotal);
       } catch (expErr) {
         console.warn("Expenses fetch issue:", expErr);
@@ -443,13 +471,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         console.warn("Inquiries fetch issue:", inqErr);
       }
 
-      // 8. Followups
+      // 8. Followups — filtered by date range when set
       try {
         const followupsRes = await axios.get<Followup[]>(`${API_URI}/followups`).catch(() => ({ data: [] }));
         const followupArray = Array.isArray(followupsRes?.data) ? followupsRes.data : [];
         setRawFollowups(followupArray);
 
-        setFollowupCount(followupArray.filter((f) => (f.status || "").toLowerCase() === "pending").length);
+        setFollowupCount(followupArray.filter((f) => {
+          const isPending = (f.status || "").toLowerCase() === "pending";
+          if (!isPending) return false;
+          if (rangeFrom && rangeTo) {
+            const dStr = f.scheduleDate || f.followupDate;
+            if (!dStr) return true; // include if no date
+            const d = new Date(dStr);
+            return d >= rangeFrom && d <= rangeTo;
+          }
+          return true;
+        }).length);
       } catch (folErr) {
         console.warn("Followups fetch issue:", folErr);
       }
@@ -492,11 +530,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
     { key: "monthly_pt", label: `PT Collection (${collectionLabel})`, value: monthlyPTCollection, icon: Dumbbell, isCurrency: true, highlight: true },
     { key: "total_revenue", label: "Total Revenue Collected", value: totalAmountPaid, icon: UserCheck, isCurrency: true },
     { key: "total_pending", label: "Total Pending Balance", value: totalPendingBalance, icon: UserX, isCurrency: true },
-    { key: "total_expenses", label: "Total Expenses", value: totalExpenses, icon: Receipt, isCurrency: true },
-    { key: "total_clients", label: "Total Clients", value: totalClients, icon: Users },
-    { key: "new_clients", label: "New Clients (Last 30 Days)", value: newClients, icon: UserPlus },
-    { key: "active_clients", label: "Active Clients", value: activeCount, icon: Users },
-    { key: "inactive_clients", label: "Inactive Clients", value: inactiveCount, icon: UserX },
+    { key: "total_expenses", label: `Total Expenses${fromDate && toDate ? ` (${collectionLabel})` : ""}`, value: totalExpenses, icon: Receipt, isCurrency: true },
+    { key: "total_clients", label: `Total Clients${fromDate && toDate ? ` (${collectionLabel})` : ""}`, value: totalClients, icon: Users },
+    { key: "new_clients", label: fromDate && toDate ? `New Clients (${collectionLabel})` : "New Clients (Last 30 Days)", value: newClients, icon: UserPlus },
+    { key: "active_clients", label: `Active Clients${fromDate && toDate ? ` (${collectionLabel})` : ""}`, value: activeCount, icon: Users },
+    { key: "inactive_clients", label: `Inactive Clients${fromDate && toDate ? ` (${collectionLabel})` : ""}`, value: inactiveCount, icon: UserX },
     { key: "pending_enquiries", label: "Pending Enquiries", value: inquiryCount, icon: HelpCircle },
     { key: "follow_ups", label: "Follow-ups", value: followupCount, icon: UserCheck },
   ];
@@ -511,14 +549,23 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
     const to = toDate ? new Date(toDate) : new Date();
     to.setHours(23, 59, 59, 999);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const rangeFrom = fromDate ? new Date(fromDate) : null;
+    const rangeTo = toDate ? new Date(toDate) : null;
+    if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
+
+    // Helper to filter gym bills by date range (joiningDate or createdAt)
+    const filterByDateRange = (bills: GymBill[]) => {
+      if (!rangeFrom || !rangeTo) return bills;
+      return bills.filter((b) => {
+        const dStr = b.joiningDate || b.createdAt;
+        if (!dStr) return false;
+        const d = new Date(dStr);
+        return d >= rangeFrom && d <= rangeTo;
+      });
+    };
 
     switch (stat.key) {
-      case "monthly_gym": {
-        const rangeFrom = fromDate ? new Date(fromDate) : null;
-        const rangeTo = toDate ? new Date(toDate) : null;
-        if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
+      case "monthly_gym":
         items = rawGymBills.filter((b) => {
           const dStr = b.joiningDate || b.createdAt;
           if (!dStr) return false;
@@ -527,11 +574,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
           return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
         });
         break;
-      }
-      case "monthly_pt": {
-        const rangeFrom = fromDate ? new Date(fromDate) : null;
-        const rangeTo = toDate ? new Date(toDate) : null;
-        if (rangeTo) rangeTo.setHours(23, 59, 59, 999);
+      case "monthly_pt":
         items = rawPTSessions.filter((p) => {
           if (!p.createdAt) return false;
           const d = new Date(p.createdAt);
@@ -539,29 +582,31 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
           return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
         });
         break;
-      }
       case "total_revenue":
-        items = rawGymBills.filter((b) => (b.totalPaidIncludingRenewals || b.amountPaid || 0) > 0);
+        items = filterByDateRange(rawGymBills).filter((b) => (b.totalPaidIncludingRenewals || b.amountPaid || 0) > 0);
         break;
       case "total_pending":
-        items = rawGymBills.filter((b) => (b.balance || 0) > 0);
+        items = filterByDateRange(rawGymBills).filter((b) => (b.balance || 0) > 0);
         break;
       case "total_clients":
-        items = rawGymBills;
+        items = filterByDateRange(rawGymBills);
         break;
       case "new_clients":
-        items = rawGymBills.filter((g) => {
+        items = filterByDateRange(rawGymBills).filter((g) => {
+          if (rangeFrom && rangeTo) return true; // already filtered
           const dStr = g.joiningDate || g.createdAt;
           if (!dStr) return false;
           const d = new Date(dStr);
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
           return d >= thirtyDaysAgo;
         });
         break;
       case "active_clients":
-        items = rawGymBills.filter((g) => (g.status || "").toLowerCase() === "active");
+        items = filterByDateRange(rawGymBills).filter((g) => (g.status || "").toLowerCase() === "active");
         break;
       case "inactive_clients":
-        items = rawGymBills.filter((g) => (g.status || "").toLowerCase() === "inactive");
+        items = filterByDateRange(rawGymBills).filter((g) => (g.status || "").toLowerCase() === "inactive");
         break;
       case "pending_enquiries":
         items = rawInquiries.filter((i) => {
@@ -570,10 +615,27 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
         });
         break;
       case "follow_ups":
-        items = rawFollowups.filter((f) => (f.status || "").toLowerCase() === "pending");
+        items = rawFollowups.filter((f) => {
+          const isPending = (f.status || "").toLowerCase() === "pending";
+          if (!isPending) return false;
+          if (rangeFrom && rangeTo) {
+            const dStr = f.scheduleDate || f.followupDate;
+            if (!dStr) return true;
+            const d = new Date(dStr);
+            return d >= rangeFrom && d <= rangeTo;
+          }
+          return true;
+        });
         break;
       case "total_expenses":
-        items = rawExpenses;
+        items = (rangeFrom && rangeTo)
+          ? rawExpenses.filter((e: any) => {
+              const dStr = e.date || e.createdAt;
+              if (!dStr) return false;
+              const d = new Date(dStr);
+              return d >= rangeFrom && d <= rangeTo;
+            })
+          : rawExpenses;
         break;
       default:
         items = [];
@@ -1058,13 +1120,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
                           <>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Client / ID</th>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Price (₹)</th>
-                            <th className="px-4 py-3 font-semibold text-yellow-800">Date</th>
+                            <th className="px-4 py-3 font-semibold text-yellow-800">Session Date</th>
                           </>
                         ) : activeStatKey.includes("enquiries") ? (
                           <>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Name</th>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Phone</th>
-                            <th className="px-4 py-3 font-semibold text-yellow-800">Date</th>
+                            <th className="px-4 py-3 font-semibold text-yellow-800">Enquiry Date</th>
                           </>
                         ) : activeStatKey.includes("follow") ? (
                           <>
@@ -1079,7 +1141,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
                             <th className="px-4 py-3 font-semibold text-yellow-800">Status</th>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Paid (₹)</th>
                             <th className="px-4 py-3 font-semibold text-yellow-800">Balance (₹)</th>
-                            <th className="px-4 py-3 font-semibold text-yellow-800">Date</th>
+                            <th className="px-4 py-3 font-semibold text-yellow-800">Joining Date</th>
                           </>
                         )}
                       </tr>
@@ -1092,13 +1154,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
                             <>
                               <td className="px-4 py-3 font-medium text-gray-800">{item.clientName || item.id || "N/A"}</td>
                               <td className="px-4 py-3 font-semibold text-yellow-800">₹{(item.price || 0).toLocaleString("en-IN")}</td>
-                              <td className="px-4 py-3 text-gray-600">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "N/A"}</td>
+                              <td className="px-4 py-3 text-gray-600">{(item.joiningDate || item.createdAt) ? new Date(item.joiningDate || item.createdAt).toLocaleDateString() : "N/A"}</td>
                             </>
                           ) : activeStatKey.includes("enquiries") ? (
                             <>
                               <td className="px-4 py-3 font-medium text-gray-800">{item.name || "N/A"}</td>
                               <td className="px-4 py-3 text-gray-600">{item.phone || "N/A"}</td>
-                              <td className="px-4 py-3 text-gray-600">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "N/A"}</td>
+                              <td className="px-4 py-3 text-gray-600">{(item.joiningDate || item.createdAt) ? new Date(item.joiningDate || item.createdAt).toLocaleDateString() : "N/A"}</td>
                             </>
                           ) : activeStatKey.includes("follow") ? (
                             <>
@@ -1134,7 +1196,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToRenewal }) => {
                                 )}
                               </td>
                               <td className="px-4 py-3 font-semibold text-red-600">₹{(item.balance || 0).toLocaleString("en-IN")}</td>
-                              <td className="px-4 py-3 text-gray-600">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "N/A"}</td>
+                              <td className="px-4 py-3 text-gray-600">{(item.joiningDate || item.createdAt) ? new Date(item.joiningDate || item.createdAt).toLocaleDateString() : "N/A"}</td>
                             </>
                           )}
                         </tr>
